@@ -1,4 +1,4 @@
-"""Core utilities for event detection and simple network models."""
+"""核心事件检测与简化网络模型工具。"""
 
 from .clusters import ClusterConfig, ClusterWLC
 from .events import detect_avalanches, detect_up_down

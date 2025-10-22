@@ -29,7 +29,7 @@ class EventDetectionTests(unittest.TestCase):
         _, _, middle_state = segments[1]
         self.assertTrue(middle_state)
         entries = [json.loads(rec.getMessage()) for rec in captured.records]
-        self.assertTrue(any(entry["event"] == "up_start" for entry in entries))
+        self.assertTrue(any(entry["event"] == "上状态开始" for entry in entries))
 
     def test_avalanche_bins(self) -> None:
         rng = random.Random(91)
@@ -46,4 +46,4 @@ class EventDetectionTests(unittest.TestCase):
             self.assertGreater(avalanche["duration_bins"], 0)
         if avalanches:
             entries = [json.loads(rec.getMessage()) for rec in captured.records]
-            self.assertTrue(any(entry["event"] == "avalanche" for entry in entries))
+            self.assertTrue(any(entry["event"] == "神经雪崩" for entry in entries))

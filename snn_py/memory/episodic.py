@@ -1,4 +1,4 @@
-"""Episodic memory ring buffer."""
+"""情景记忆的环形缓冲。"""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ _LOGGER = logging_config.get_logger("snn_py.memory.episodic")
 
 @dataclass
 class Episode:
-    """Structured snapshot of an episode surfaced to the agent."""
+    """呈现给智能体的情景片段快照。"""
 
     t0: float
     t1: float
@@ -23,11 +23,11 @@ class Episode:
 
 
 class EpisodicStore:
-    """Ring buffer for episodic memory with replay capabilities."""
+    """支持回放的情景记忆环形缓冲区。"""
 
     def __init__(self, capacity: int = 256) -> None:
         if capacity <= 0:
-            raise ValueError("capacity must be positive")
+            raise ValueError("容量必须为正整数")
         self._capacity = capacity
         self._buffer: List[Episode | None] = [None] * capacity
         self._head = 0
@@ -40,13 +40,13 @@ class EpisodicStore:
         if self._size < self._capacity:
             self._size += 1
         payload = {
-            "event": "episode_appended",
+            "event": "片段写入",
             "meta": {"kind": ep.kind, "t0": ep.t0, "t1": ep.t1},
         }
         _LOGGER.info(json.dumps(payload, separators=(",", ":")))
 
     def query_last(self, k: int = 10) -> List[Episode]:
-        """Return up to k most recent episodes (newest first)."""
+        """返回最新的最多 k 条片段（按时间逆序）。"""
         if k <= 0 or self._size == 0:
             return []
         result: List[Episode] = []
@@ -59,6 +59,6 @@ class EpisodicStore:
         return result
 
     def replay_iter(self, k: int = 50) -> Iterator[Episode]:
-        """Yield up to k latest episodes in reverse chronological order."""
+        """按时间逆序迭代最近的最多 k 条片段。"""
         for episode in self.query_last(k):
             yield episode

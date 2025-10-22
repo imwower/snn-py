@@ -1,4 +1,4 @@
-"""Cluster-based winnerless competition built atop an LIF network."""
+"""基于 LIF 网络的簇结构胜者非稳（WLC）模型。"""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ _LOGGER = logging_config.get_logger("snn_py.core.clusters")
 
 @dataclass(frozen=True)
 class ClusterConfig:
-    """Configuration for clustered LIF winnerless competition."""
+    """簇化 LIF 胜者非稳网络的配置。"""
 
     n: int = 150
     n_clusters: int = 4
@@ -37,13 +37,13 @@ class ClusterConfig:
 
 
 class ClusterWLC:
-    """Sparse clustered LIF network with adaptation-driven switching."""
+    """依靠适应机制驱动簇间轮换的稀疏 LIF 网络。"""
 
     def __init__(self, cfg: ClusterConfig, seed: int = 0) -> None:
         if cfg.n_clusters <= 0:
-            raise ValueError("n_clusters must be positive")
+            raise ValueError("簇数量必须为正整数")
         if cfg.n <= 0:
-            raise ValueError("n must be positive")
+            raise ValueError("神经元数量必须为正整数")
         self.cfg = cfg
         self._rng = random.Random(seed)
         self._logger = _LOGGER
@@ -52,7 +52,7 @@ class ClusterWLC:
         self._n_inh = max(1, int(round(cfg.n * cfg.frac_inh)))
         self._n_exc = cfg.n - self._n_inh
         if self._n_exc <= 0:
-            raise ValueError("Configuration yields no excitatory neurons.")
+            raise ValueError("当前配置导致无兴奋性神经元")
 
         self._adapt_decay = (
             math.exp(-1.0 / cfg.adapt_tau_steps) if cfg.adapt_tau_steps > 0 else 0.0
@@ -103,7 +103,7 @@ class ClusterWLC:
                         self._edges[pre].append((post, self.cfg.w_i))
 
     def step(self) -> List[int]:
-        """Advance the clustered network by one time step."""
+        """推进簇网络一时步并返回脉冲。"""
         cfg = self.cfg
         spikes = [0 for _ in range(cfg.n)]
         inputs = self._incoming
@@ -139,14 +139,14 @@ class ClusterWLC:
         return spikes
 
     def run(self, T: float) -> List[List[int]]:
-        """Simulate the clustered network for duration T seconds."""
+        """模拟簇网络 T 秒并返回脉冲序列。"""
         steps = max(0, int(T / self.cfg.dt))
         return [self.step() for _ in range(steps)]
 
     def dominant_cluster_series(self, spikes: Sequence[Sequence[int]], win_steps: int) -> List[int]:
-        """Compute dominant cluster per window and emit change logs."""
+        """计算每个窗口的主导簇并输出变更日志。"""
         if win_steps <= 0:
-            raise ValueError("win_steps must be positive")
+            raise ValueError("窗口长度必须为正整数")
         series: List[int] = []
         prev_cluster: Optional[int] = None
         dt = self.cfg.dt
@@ -166,7 +166,7 @@ class ClusterWLC:
                 prev_cluster = dominant
                 series.append(dominant)
                 payload = {
-                    "event": "cluster_dominant_change",
+                    "event": "主导簇变更",
                     "meta": {"t": win_start * dt, "cluster": dominant},
                 }
                 self._logger.info(json.dumps(payload, separators=(",", ":")))

@@ -1,4 +1,4 @@
-"""Minimal leaky integrate-and-fire network simulator."""
+"""最小化的泄漏积分发放（LIF）网络模拟器。"""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ _LOGGER = logging_config.get_logger("snn_py.core.lif")
 
 @dataclass(frozen=True)
 class LIFConfig:
-    """Configuration for a simple LIF network."""
+    """简单 LIF 网络的配置。"""
 
     n: int
     frac_inh: float
@@ -32,7 +32,7 @@ class LIFConfig:
 
 
 class LIF:
-    """Sparse, delayed LIF network with refractory handling."""
+    """带有稀疏连通与延迟的不应期 LIF 网络。"""
 
     def __init__(self, cfg: LIFConfig, seed: int = 0) -> None:
         self.cfg = cfg
@@ -54,7 +54,7 @@ class LIF:
         _LOGGER.info(
             json.dumps(
                 {
-                    "event": "lif_build",
+                    "event": "LIF 构建完成",
                     "meta": {
                         "n": cfg.n,
                         "p_conn": cfg.p_conn,
@@ -66,7 +66,7 @@ class LIF:
         )
 
     def step(self) -> List[int]:
-        """Advance the network dynamics by one time step."""
+        """推进网络一时步并返回当前脉冲。"""
         spikes = [0 for _ in range(self.cfg.n)]
         inputs = [0.0 for _ in range(self.cfg.n)]
 
@@ -98,7 +98,7 @@ class LIF:
             _LOGGER.info(
                 json.dumps(
                     {
-                        "event": "lif_step_summary",
+                        "event": "LIF 步进摘要",
                         "meta": {"t": self._time_step * self.cfg.dt, "spike_count": sum(spikes)},
                     },
                     separators=(",", ":"),
@@ -107,13 +107,13 @@ class LIF:
         return spikes
 
     def run(self, T: float) -> List[List[int]]:
-        """Simulate the network for a duration T seconds."""
+        """模拟网络 T 秒并返回脉冲矩阵。"""
         steps = int(T / self.cfg.dt)
         return [self.step() for _ in range(steps)]
 
 
 def isi_cv(train: Sequence[int], dt: float) -> Optional[float]:
-    """Compute coefficient of variation of inter-spike intervals."""
+    """计算脉冲间隔的变异系数。"""
     spikes = [idx for idx, value in enumerate(train) if value]
     if len(spikes) < 3:
         return None

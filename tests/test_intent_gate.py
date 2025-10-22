@@ -47,7 +47,7 @@ class IntentGateTests(unittest.TestCase):
                     break
         self.assertTrue(fired, "Gate should spontaneously fire with high noise.")
         events = [json.loads(rec.getMessage()) for rec in captured.records]
-        self.assertTrue(any(evt["event"] == "intent_fired" for evt in events))
+        self.assertTrue(any(evt["event"] == "意图触发" for evt in events))
 
     def test_rate_limit_and_refractory(self) -> None:
         cfg = GateConfig(
@@ -68,11 +68,11 @@ class IntentGateTests(unittest.TestCase):
                 fired, _ = gate.step(q_t=5.0)
                 current_time += cfg.dt
                 if fired:
-                    events.append("intent_fired")
+                    events.append("意图触发")
                     times.append(current_time)
         self.assertGreaterEqual(len(times), 2, "Expect multiple firings under sustained drive.")
         for prev, nxt in zip(times, times[1:]):
             self.assertGreaterEqual(nxt - prev, 0.5 - 1e-6)
         logged = [json.loads(rec.getMessage()) for rec in captured.records]
         limiter_events = {evt["event"] for evt in logged}
-        self.assertTrue({"rate_limited", "refractory"} & limiter_events)
+        self.assertTrue({"速率限制", "不应期"} & limiter_events)

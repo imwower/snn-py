@@ -45,4 +45,4 @@ class EpisodicStoreTests(unittest.TestCase):
         with self.assertLogs("snn_py.memory.episodic", level="INFO") as captured:
             store.append(episode)
         entries = [json.loads(record.getMessage()) for record in captured.records]
-        self.assertTrue(any(entry["event"] == "episode_appended" for entry in entries))
+        self.assertTrue(any(entry["event"] == "片段写入" for entry in entries))

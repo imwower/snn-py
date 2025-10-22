@@ -1,4 +1,4 @@
-"""Logging helpers for the snn_py package."""
+"""snn_py 软件包的日志工具。"""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def _synchronise_package_loggers(level: int) -> None:
 
 
 def setup(level_env_var: str = "SNN_PY_LOGLEVEL") -> None:
-    """Configure root and package loggers from an environment variable."""
+    """从环境变量配置根记录器与包级记录器。"""
     level, level_name = _determine_level(os.environ.get(level_env_var))
 
     root_logger = logging.getLogger()
@@ -45,7 +45,7 @@ def setup(level_env_var: str = "SNN_PY_LOGLEVEL") -> None:
     _synchronise_package_loggers(level)
 
     payload = {
-        "event": "logging_setup",
+        "event": "日志初始化",
         "ts": time.time(),
         "meta": {"level": level_name, "env_var": level_env_var},
     }
@@ -54,7 +54,7 @@ def setup(level_env_var: str = "SNN_PY_LOGLEVEL") -> None:
 
 
 def get_logger(name: str) -> logging.Logger:
-    """Return a logger within the snn_py namespace."""
+    """返回 snn_py 命名空间中的记录器。"""
     if not name:
         qualified = _PACKAGE_PREFIX
     elif name.startswith(_PACKAGE_PREFIX):

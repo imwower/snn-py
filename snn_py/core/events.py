@@ -1,4 +1,4 @@
-"""Event detection helpers for population activity."""
+"""群体活动的事件检测工具。"""
 
 from __future__ import annotations
 
@@ -22,9 +22,9 @@ def _emit(event: str, **meta: float) -> None:
 def detect_up_down(
     pop_rate: List[float], thr_low: float, thr_high: float
 ) -> List[Tuple[int, int, bool]]:
-    """Segment population rate into up/down states using hysteresis thresholds."""
+    """使用滞后阈值将群体放电率切分为上/下状态段。"""
     if thr_low > thr_high:
-        raise ValueError("thr_low must be <= thr_high")
+        raise ValueError("低阈值必须小于等于高阈值")
     segments: List[Tuple[int, int, bool]] = []
     if not pop_rate:
         return segments
@@ -38,13 +38,13 @@ def detect_up_down(
                 segments.append((current_start, idx, True))
                 state_up = False
                 current_start = idx
-                _emit("down_start", start=idx)
+                _emit("下状态开始", start=idx)
         else:
             if value >= thr_high:
                 segments.append((current_start, idx, False))
                 state_up = True
                 current_start = idx
-                _emit("up_start", start=idx)
+                _emit("上状态开始", start=idx)
 
     segments.append((current_start, len(pop_rate), state_up))
     return segments
@@ -61,7 +61,7 @@ def _compute_bin_width(spike_times: List[int]) -> Optional[int]:
 
 
 def detect_avalanches(spikes: List[List[int]], bin_width: Optional[int] = None) -> List[Dict[str, int]]:
-    """Detect neuronal avalanches by binning population activity."""
+    """通过时间分箱检测神经雪崩。"""
     if not spikes:
         return []
     time_bins = len(spikes)
@@ -74,7 +74,7 @@ def detect_avalanches(spikes: List[List[int]], bin_width: Optional[int] = None) 
         width = computed
 
     if width <= 0:
-        raise ValueError("bin_width must be positive")
+        raise ValueError("分箱宽度必须为正值")
 
     num_bins = math.ceil(time_bins / width)
     binned_counts: List[int] = [0] * num_bins
@@ -96,5 +96,5 @@ def detect_avalanches(spikes: List[List[int]], bin_width: Optional[int] = None) 
         duration = idx - start
         avalanche = {"size": total, "duration_bins": duration}
         avalanches.append(avalanche)
-        _emit("avalanche", size=total, duration=duration)
+        _emit("神经雪崩", size=total, duration=duration)
     return avalanches

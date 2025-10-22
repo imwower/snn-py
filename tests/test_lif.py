@@ -64,9 +64,9 @@ class LIFNetworkTests(unittest.TestCase):
             net.run(0.5)
         entries = [json.loads(record.getMessage()) for record in captured.records]
         events = {entry["event"] for entry in entries}
-        self.assertIn("lif_build", events)
-        self.assertTrue(any(entry["event"] == "lif_step_summary" for entry in entries))
+        self.assertIn("LIF 构建完成", events)
+        self.assertTrue(any(entry["event"] == "LIF 步进摘要" for entry in entries))
         entries = [json.loads(record.getMessage()) for record in captured.records]
         events = {entry["event"] for entry in entries}
-        self.assertIn("lif_build", events)
-        self.assertTrue(any(entry["event"] == "lif_step_summary" for entry in entries))
+        self.assertIn("LIF 构建完成", events)
+        self.assertTrue(any(entry["event"] == "LIF 步进摘要" for entry in entries))

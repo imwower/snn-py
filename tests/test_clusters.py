@@ -48,4 +48,4 @@ class ClusterWLCTests(unittest.TestCase):
         self.assertGreaterEqual(len(set(series)), 2)
         entries = [json.loads(record.getMessage()) for record in captured.records]
         events = [entry["event"] for entry in entries]
-        self.assertIn("cluster_dominant_change", events)
+        self.assertIn("主导簇变更", events)

@@ -1,4 +1,4 @@
-"""Public interface for the snn_py package."""
+"""snn_py 软件包的对外接口。"""
 
 from .core import (
     ClusterConfig,

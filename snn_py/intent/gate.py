@@ -1,4 +1,4 @@
-"""Noise-driven intent gate."""
+"""基于噪声的意向门控。"""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from snn_py import logging_config
 
 @dataclass(frozen=True)
 class GateConfig:
-    """Configuration parameters for the intent gate."""
+    """意向门控的配置参数。"""
 
     dt: float
     lam: float
@@ -26,7 +26,7 @@ class GateConfig:
 
 
 class IntentGate:
-    """Stochastic intent generator that produces proposals from intrinsic noise."""
+    """依靠内源噪声生成提案的随机意向门控。"""
 
     def __init__(self, cfg: GateConfig, seed: int = 7) -> None:
         self.cfg = cfg
@@ -38,13 +38,13 @@ class IntentGate:
         self._min_interval = 0.0 if cfg.max_rate_hz <= 0 else 1.0 / cfg.max_rate_hz
 
     def reset(self) -> None:
-        """Reset the internal state and clock."""
+        """重置内部状态与时间。"""
         self._state = 0.0
         self._time = 0.0
         self._last_fire_time = None
 
     def step(self, q_t: float = 0.0) -> Tuple[bool, float]:
-        """Advance the gate and emit a firing decision."""
+        """推进门控一步并给出是否触发的决定。"""
         self._time += self.cfg.dt
         drift = -self.cfg.lam * self._state + self.cfg.alpha * q_t
         noise = self.cfg.sigma * math.sqrt(self.cfg.dt) * self._rng.normalvariate(0.0, 1.0)
@@ -62,19 +62,19 @@ class IntentGate:
                 refractory_elapsed = self._time - self._last_fire_time
                 if refractory_elapsed < self.cfg.refractory:
                     self._state = min(self._state, self.cfg.theta)
-                    self._emit("refractory", q_t, refractory_elapsed)
+                    self._emit("不应期", q_t, refractory_elapsed)
                     return False, self._state
 
             if self._min_interval > 0 and self._last_fire_time is not None:
                 interval_elapsed = self._time - self._last_fire_time
                 if interval_elapsed < self._min_interval:
                     self._state = min(self._state, self.cfg.theta)
-                    self._emit("rate_limited", q_t, interval_elapsed)
+                    self._emit("速率限制", q_t, interval_elapsed)
                     return False, self._state
 
             self._last_fire_time = self._time
             self._state = 0.0
-            self._emit("intent_fired", q_t, since_last)
+            self._emit("意图触发", q_t, since_last)
             return True, self._state
 
         return False, self._state

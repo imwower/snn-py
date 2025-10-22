@@ -32,7 +32,7 @@ class LoggingConfigTests(unittest.TestCase):
             self.assertEqual(logging.getLogger("snn_py").level, logging.INFO)
         self.assertGreaterEqual(len(captured.records), 1)
         payload = json.loads(captured.records[-1].getMessage())
-        self.assertEqual(payload["event"], "logging_setup")
+        self.assertEqual(payload["event"], "日志初始化")
         self.assertEqual(payload["meta"]["level"], "INFO")
         self.assertEqual(payload["meta"]["env_var"], "SNN_PY_LOGLEVEL")
         self.assertIsInstance(payload["ts"], float)
