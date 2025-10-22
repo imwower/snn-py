@@ -10,6 +10,7 @@ from .core import (
     isi_cv,
 )
 from .intent import GateConfig, IntentGate, NoveltyScorer
+from .memory import Episode, EpisodicStore
 from .logging_config import get_logger, setup
 
 __all__ = [
@@ -25,4 +26,6 @@ __all__ = [
     "isi_cv",
     "ClusterConfig",
     "ClusterWLC",
+    "Episode",
+    "EpisodicStore",
 ]
