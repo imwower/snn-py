@@ -1,6 +1,14 @@
 """Public interface for the snn_py package."""
 
-from .core import LIF, LIFConfig, detect_avalanches, detect_up_down, isi_cv
+from .core import (
+    ClusterConfig,
+    ClusterWLC,
+    LIF,
+    LIFConfig,
+    detect_avalanches,
+    detect_up_down,
+    isi_cv,
+)
 from .intent import GateConfig, IntentGate, NoveltyScorer
 from .logging_config import get_logger, setup
 
@@ -15,4 +23,6 @@ __all__ = [
     "LIFConfig",
     "LIF",
     "isi_cv",
+    "ClusterConfig",
+    "ClusterWLC",
 ]
