@@ -11,6 +11,7 @@ from .core import (
 )
 from .intent import GateConfig, IntentGate, NoveltyScorer
 from .memory import Episode, EpisodicStore
+from .policy import AuditResult, Auditor
 from .logging_config import get_logger, setup
 
 __all__ = [
@@ -28,4 +29,6 @@ __all__ = [
     "ClusterWLC",
     "Episode",
     "EpisodicStore",
+    "AuditResult",
+    "Auditor",
 ]
