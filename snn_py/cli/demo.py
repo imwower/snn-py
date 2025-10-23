@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import cProfile
 import json
 import math
 import os
 import random
+import sys
+import trace
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Tuple
 
@@ -27,6 +30,8 @@ def _parse_args(args: Optional[Sequence[str]]) -> argparse.Namespace:
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="日志级别",
     )
+    parser.add_argument("--profile", default=None, help="保存 cProfile 结果到文件")
+    parser.add_argument("--trace-coverage", default=None, help="输出 trace 覆盖目录")
     return parser.parse_args(args=args)
 
 
@@ -90,8 +95,7 @@ class SimpleIntentGate:
         return fired, self._time
 
 
-def main(args: Optional[Sequence[str]] = None) -> int:
-    parsed = _parse_args(args)
+def _run(parsed: argparse.Namespace) -> int:
 
     previous_level = os.environ.get("SNN_PY_LOGLEVEL")
     os.environ["SNN_PY_LOGLEVEL"] = parsed.loglevel
@@ -145,6 +149,10 @@ def main(args: Optional[Sequence[str]] = None) -> int:
             auditor.check(proposal["tool"], proposal["args"])
 
     store.close()
+    if parsed.profile:
+        logger.info("", extra={"event": "profile_saved", "meta": {"path": parsed.profile}})
+    if parsed.trace_coverage:
+        logger.info("", extra={"event": "trace_coverage_done", "meta": {"dir": parsed.trace_coverage}})
     logger.info("", extra={"event": "run_complete", "meta": {"episodes": episode_count}})
 
     if previous_level is None:
@@ -154,7 +162,25 @@ def main(args: Optional[Sequence[str]] = None) -> int:
     logging_config.setup()
     return 0
 
+def main(args: Optional[Sequence[str]] = None) -> int:
+    parsed = _parse_args(args)
+    if parsed.profile:
+        profiler = cProfile.Profile()
+        profiler.enable()
+        exit_code = _run(parsed)
+        profiler.disable()
+        profiler.dump_stats(parsed.profile)
+        return exit_code
+    if parsed.trace_coverage:
+        tracer = trace.Trace(count=True, trace=False)
+        tracer.runfunc(_run, parsed)
+        results = tracer.results()
+        cover_dir = Path(parsed.trace_coverage)
+        cover_dir.mkdir(parents=True, exist_ok=True)
+        results.write_results(show_missing=True, coverdir=str(cover_dir))
+        return 0
+    return _run(parsed)
+
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(main())
-
