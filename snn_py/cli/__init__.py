@@ -1,5 +1,6 @@
-"""命令行入口集合。"""
+"""命令行入口。"""
 
-from .demo import main as demo_main
+from .demo import main
 
-__all__ = ["demo_main"]
+__all__ = ["main"]
+

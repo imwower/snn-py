@@ -27,19 +27,25 @@ class DemoCLITests(unittest.TestCase):
     def test_demo_runs(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             policy_path = os.path.join(tmpdir, "policy.json")
+            jsonl_dir = os.path.join(tmpdir, "jsonl")
+            os.makedirs(jsonl_dir, exist_ok=True)
             with open(policy_path, "w", encoding="utf-8") as fh:
                 json.dump(POLICY_TEMPLATE, fh)
 
-            with self.assertLogs("snn_py.cli.demo", level="INFO") as captured:
+            with self.assertLogs("snn_py", level="INFO") as captured:
                 exit_code = demo.main([
                     "--T",
                     "3.0",
                     "--policy",
                     policy_path,
+                    "--jsonl-dir",
+                    jsonl_dir,
                     "--loglevel",
-                    "WARNING",
+                    "INFO",
                 ])
 
         self.assertEqual(exit_code, 0)
         events = [record_payload(record) for record in captured.records]
         self.assertTrue(any(entry.get("event") == "run_complete" for entry in events))
+        if any(entry.get("event") == "episode_appended" for entry in events):
+            self.assertTrue(any(entry.get("event") == "audit_decision" for entry in events))

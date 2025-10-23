@@ -1,149 +1,151 @@
-"""演示从 LIF 网络到策略审计的端到端流程。"""
+"""演示 CLI：合成群体率→意向门→审计→情景记忆。"""
 
 from __future__ import annotations
 
 import argparse
 import json
-import logging
+import math
 import os
-import statistics
-from typing import Iterable, List
+import random
+from pathlib import Path
+from typing import Iterable, List, Optional, Sequence, Tuple
 
 from snn_py import logging_config
-from snn_py.core import LIF, LIFConfig, detect_up_down
-from snn_py.intent import GateConfig, IntentGate, NoveltyScorer
-from snn_py.memory import Episode, EpisodicStore
-from snn_py.policy import Auditor
+from snn_py.intent.scoring import NoveltyScorer
+from snn_py.memory.episodic import Episode, EpisodicStore
+from snn_py.policy.auditor import Auditor
 
 
-def _moving_average(values: List[float], window: int) -> List[float]:
-    if not values:
-        return []
-    window = max(1, window)
-    smoothed: List[float] = []
-    for idx in range(len(values)):
-        start = max(0, idx - window + 1)
-        segment = values[start : idx + 1]
-        smoothed.append(sum(segment) / len(segment))
-    return smoothed
-
-
-def main(args: List[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="演示主循环：LIF → 审计器")
+def _parse_args(args: Optional[Sequence[str]]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="snn_py demo run")
     parser.add_argument("--T", type=float, default=8.0, help="模拟时长（秒）")
-    parser.add_argument("--policy", required=True, help="策略 JSON 路径")
+    parser.add_argument("--policy", required=True, help="策略 JSON 文件")
+    parser.add_argument("--jsonl-dir", default=None, help="情景落盘目录")
     parser.add_argument(
         "--loglevel",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="日志级别",
     )
+    return parser.parse_args(args=args)
 
-    parsed = parser.parse_args(args)
+
+def _synth_rate(duration: float, dt: float) -> List[float]:
+    steps = max(1, int(duration / dt))
+    rates: List[float] = []
+    for i in range(steps):
+        t = i * dt
+        value = 1.0 + 0.6 * math.sin(2.0 * math.pi * t / max(duration, dt))
+        value += 0.2 * math.sin(6.0 * math.pi * t / max(duration, dt))
+        value += random.uniform(-0.05, 0.05)
+        rates.append(max(0.0, value))
+    return rates
+
+
+def _segments(rates: Sequence[float], thr_low: float, thr_high: float) -> List[Tuple[int, int, bool]]:
+    logger = logging_config.get_logger("snn_py.cli.demo")
+    segments: List[Tuple[int, int, bool]] = []
+    start = 0
+    state_up = False
+    for idx, value in enumerate(rates):
+        if not state_up and value >= thr_high:
+            if idx > start:
+                segments.append((start, idx, False))
+            state_up = True
+            start = idx
+            logger.info("", extra={"event": "up_start", "meta": {"index": idx, "rate": value}})
+        elif state_up and value <= thr_low:
+            if idx > start:
+                segments.append((start, idx, True))
+            state_up = False
+            start = idx
+            logger.info("", extra={"event": "down_start", "meta": {"index": idx, "rate": value}})
+    end_idx = len(rates)
+    if end_idx > start:
+        segments.append((start, end_idx, state_up))
+    return segments
+
+
+class SimpleIntentGate:
+    def __init__(self, dt: float, threshold: float = 0.9, decay: float = 0.7, refractory: float = 0.15) -> None:
+        self._dt = dt
+        self._threshold = threshold
+        self._decay = decay
+        self._refrac_steps = max(1, int(refractory / dt))
+        self._refrac = 0
+        self._potential = 0.0
+        self._time = 0.0
+
+    def step(self, drive: float) -> Tuple[bool, float]:
+        fired = False
+        if self._refrac > 0:
+            self._refrac -= 1
+        else:
+            self._potential = self._potential * self._decay + drive
+            if self._potential >= self._threshold:
+                fired = True
+                self._potential = 0.0
+                self._refrac = self._refrac_steps
+        self._time += self._dt
+        return fired, self._time
+
+
+def main(args: Optional[Sequence[str]] = None) -> int:
+    parsed = _parse_args(args)
 
     previous_level = os.environ.get("SNN_PY_LOGLEVEL")
     os.environ["SNN_PY_LOGLEVEL"] = parsed.loglevel
     logging_config.setup()
     logger = logging_config.get_logger("snn_py.cli.demo")
-    logger.setLevel(logging.INFO)
 
-    lif_cfg = LIFConfig(
-        n=40,
-        frac_inh=0.25,
-        p_conn=0.2,
-        dt=0.001,
-        tau_m=0.02,
-        v_rest=0.0,
-        v_reset=0.0,
-        v_th=1.0,
-        w_e=1.5,
-        w_i=-1.2,
-        refrac_steps=3,
-        ext_noise=0.6,
-    )
-    lif = LIF(lif_cfg, seed=17)
-    spikes = lif.run(parsed.T)
-
-    counts = [sum(step) for step in spikes]
-    rates = _moving_average(counts, window=50)
-    if rates:
-        global_mean = statistics.fmean(rates)
-    else:
-        global_mean = 0.0
-
-    base = global_mean if global_mean > 0 else 1.0
-    thr_low = max(0.0, 0.8 * base)
-    thr_high = max(thr_low + max(0.1 * base, 0.1), thr_low + 0.1)
-
-    segments = detect_up_down(rates, thr_low=thr_low, thr_high=thr_high)
-
-    scorer = NoveltyScorer()
-    gate_cfg = GateConfig(
-        dt=0.05,
-        lam=0.15,
-        alpha=0.4,
-        sigma=1.0,
-        theta=0.75,
-        refractory=0.2,
-        max_rate_hz=4.0,
-    )
-    gate = IntentGate(gate_cfg, seed=11)
-    store = EpisodicStore()
+    jsonl_dir = Path(parsed.jsonl_dir) if parsed.jsonl_dir else None
+    store = EpisodicStore(jsonl_dir=jsonl_dir)
     auditor = Auditor(parsed.policy)
+    scorer = NoveltyScorer()
 
+    dt = 0.05
+    rates = _synth_rate(parsed.T, dt)
+    global_mean = sum(rates) / len(rates)
+    thr_low = global_mean - 0.1
+    thr_high = global_mean + 0.1
+    segs = _segments(rates, thr_low, thr_high)
+
+    gate = SimpleIntentGate(dt=dt, threshold=0.85, decay=0.65, refractory=0.1)
     episode_count = 0
-    gate_time = 0.0
 
-    lif_dt = lif_cfg.dt
-    for seg_index, (start, end, is_up) in enumerate(segments):
-        if end <= start:
-            continue
+    for idx, (start, end, is_up) in enumerate(segs):
         segment_rates = rates[start:end]
-        if segment_rates:
-            mean_rate = statistics.fmean(segment_rates)
-        else:
-            mean_rate = 0.0
-        x = mean_rate - global_mean
-        q_t = scorer.score(x)
+        if not segment_rates:
+            continue
+        mean_rate = sum(segment_rates) / len(segment_rates)
+        q = scorer.score(mean_rate)
+        drive = q if is_up else 0.5 * q
 
-        duration = (end - start) * lif_dt
-        steps_needed = max(1, int(duration / gate_cfg.dt))
-
-        for _ in range(steps_needed):
-            fired, _ = gate.step(q_t)
-            gate_time += gate_cfg.dt
+        for _ in segment_rates:
+            fired, timestamp = gate.step(drive)
             if not fired:
                 continue
             logger.info(
-                json.dumps(
-                    {"event": "proposal", "meta": {"t": gate_time, "q": q_t}},
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                )
+                "",
+                extra={
+                    "event": "intent_fired",
+                    "meta": {"t": round(timestamp, 3), "q": drive, "segment": idx, "up": is_up},
+                },
             )
             proposal = {"tool": "ProposeAction", "args": {"note": "spontaneous"}}
             episode = Episode(
-                t0=gate_time,
-                t1=gate_time,
+                t0=timestamp,
+                t1=timestamp,
                 kind="proposal",
-                meta={"segment": seg_index, "is_up": is_up, "q": q_t},
+                meta={"segment": idx, "up": is_up, "q": drive},
                 payload=proposal,
             )
             store.append(episode)
             episode_count += 1
+            auditor.check(proposal["tool"], proposal["args"])
 
-            result = auditor.check(proposal["tool"], proposal["args"])
-            logger.info(
-                json.dumps(
-                    {"event": "audit_result", "meta": {"status": result.status}},
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                )
-            )
-
-    payload = {"event": "run_complete", "meta": {"episodes": episode_count}}
-    logger.info(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
-    print(json.dumps(payload, ensure_ascii=False))
+    store.close()
+    logger.info("", extra={"event": "run_complete", "meta": {"episodes": episode_count}})
 
     if previous_level is None:
         os.environ.pop("SNN_PY_LOGLEVEL", None)
@@ -155,3 +157,4 @@ def main(args: List[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(main())
+
