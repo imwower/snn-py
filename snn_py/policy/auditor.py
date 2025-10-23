@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from snn_py import logging_config
 
-_LOGGER = logging_config.get_logger("snn_py.policy.auditor")
+
+def _get_logger() -> logging.Logger:
+    logger = logging_config.get_logger("snn_py.policy.auditor")
+    if logger.level > logging.INFO:
+        logger.setLevel(logging.INFO)
+    return logger
 
 
 @dataclass(frozen=True)
@@ -60,7 +66,8 @@ class Auditor:
             status = "DENIED"
             reason = "工具未被授权"
 
-        _LOGGER.info(
+        logger = _get_logger()
+        logger.info(
             json.dumps(
                 {"event": "审计决策", "meta": {"tool": tool, "status": status}},
                 ensure_ascii=False,

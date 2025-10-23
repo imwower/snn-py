@@ -8,4 +8,18 @@ Typical usage during development:
 SNN_PY_LOGLEVEL=DEBUG python -m unittest -v
 ```
 
-That command enables debug-level logs while the unit tests execute, letting you inspect the JSON setup event and any additional diagnostics emitted by `snn_py`.
+## 测试与演示
+
+在提交前可以使用 INFO 级别日志跑完整测试：
+
+```bash
+SNN_PY_LOGLEVEL=INFO python -m unittest -v
+```
+
+若要体验端到端流程（LIF → 群体率 → Up/Down → 意向门 → 记忆 → 审计），可运行演示 CLI：
+
+```bash
+python -m snn_py.cli.demo --T 5 --policy policy.example.json --loglevel INFO
+```
+
+执行过程中会打印 JSON 日志，最终输出 `run_complete` 事件以及生成的提案数。

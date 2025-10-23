@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from typing import Dict, Iterator, List
 
 from snn_py import logging_config
 
-_LOGGER = logging_config.get_logger("snn_py.memory.episodic")
+
+def _get_logger() -> logging.Logger:
+    logger = logging_config.get_logger("snn_py.memory.episodic")
+    if logger.level > logging.INFO:
+        logger.setLevel(logging.INFO)
+    return logger
 
 
 @dataclass
@@ -43,7 +49,8 @@ class EpisodicStore:
             "event": "片段写入",
             "meta": {"kind": ep.kind, "t0": ep.t0, "t1": ep.t1},
         }
-        _LOGGER.info(json.dumps(payload, separators=(",", ":")))
+        logger = _get_logger()
+        logger.info(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
 
     def query_last(self, k: int = 10) -> List[Episode]:
         """返回最新的最多 k 条片段（按时间逆序）。"""

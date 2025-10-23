@@ -41,6 +41,7 @@ def main(args: List[str] | None = None) -> int:
 
     parsed = parser.parse_args(args)
 
+    previous_level = os.environ.get("SNN_PY_LOGLEVEL")
     os.environ["SNN_PY_LOGLEVEL"] = parsed.loglevel
     logging_config.setup()
     logger = logging_config.get_logger("snn_py.cli.demo")
@@ -143,6 +144,12 @@ def main(args: List[str] | None = None) -> int:
     payload = {"event": "run_complete", "meta": {"episodes": episode_count}}
     logger.info(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
     print(json.dumps(payload, ensure_ascii=False))
+
+    if previous_level is None:
+        os.environ.pop("SNN_PY_LOGLEVEL", None)
+    else:
+        os.environ["SNN_PY_LOGLEVEL"] = previous_level
+    logging_config.setup()
     return 0
 
 

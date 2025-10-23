@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import random
 import statistics
 from dataclasses import dataclass
@@ -10,7 +11,12 @@ from typing import List, Optional, Sequence
 
 from snn_py import logging_config
 
-_LOGGER = logging_config.get_logger("snn_py.core.lif")
+
+def _get_logger() -> logging.Logger:
+    logger = logging_config.get_logger("snn_py.core.lif")
+    if logger.level > logging.INFO:
+        logger.setLevel(logging.INFO)
+    return logger
 
 
 @dataclass(frozen=True)
@@ -51,7 +57,8 @@ class LIF:
         self._refrac = [0 for _ in range(cfg.n)]
         self._pending: List[List[int]] = [[] for _ in range(cfg.n)]
         self._time_step = 0
-        _LOGGER.info(
+        logger = _get_logger()
+        logger.info(
             json.dumps(
                 {
                     "event": "LIF 构建完成",
@@ -95,7 +102,8 @@ class LIF:
 
         self._time_step += 1
         if self._time_step % 50 == 0:
-            _LOGGER.info(
+            logger = _get_logger()
+            logger.info(
                 json.dumps(
                     {
                         "event": "LIF 步进摘要",
