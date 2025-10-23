@@ -23,3 +23,11 @@ python -m snn_py.cli.demo --T 5 --policy policy.example.json --loglevel INFO
 ```
 
 执行过程中会打印 JSON 日志，最终输出 `run_complete` 事件以及生成的提案数。
+
+## 安装与快速开始
+
+```bash
+python -m pip install .
+python -m snn_py.cli.doctor --policy policy.example.json --check-dir .
+python -m snn_py.cli.demo --help
+```
