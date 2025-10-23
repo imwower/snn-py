@@ -1,11 +1,14 @@
-"""情景记忆的环形缓冲。"""
+"""情景记忆环形缓冲与 JSONL 持久化。"""
 
 from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
-from typing import Dict, Iterator, List
+import os
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Dict, Iterator, List, Optional
+from uuid import uuid4
 
 from snn_py import logging_config
 
@@ -14,10 +17,8 @@ def _get_logger() -> logging.Logger:
     return logging_config.get_logger("snn_py.memory.episodic")
 
 
-@dataclass
+@dataclass(frozen=True)
 class Episode:
-    """呈现给智能体的情景片段快照。"""
-
     t0: float
     t1: float
     kind: str
@@ -26,31 +27,66 @@ class Episode:
 
 
 class EpisodicStore:
-    """支持回放的情景记忆环形缓冲区。"""
-
-    def __init__(self, capacity: int = 256) -> None:
+    def __init__(self, capacity: int = 512, jsonl_dir: Optional[Path] = None, roll_bytes: int = 10_000_000) -> None:
         if capacity <= 0:
-            raise ValueError("容量必须为正整数")
+            raise ValueError("capacity must be positive")
         self._capacity = capacity
-        self._buffer: List[Episode | None] = [None] * capacity
+        self._buffer: List[Optional[Episode]] = [None] * capacity
         self._head = 0
         self._size = 0
+        self._logger = _get_logger()
 
-    def append(self, ep: Episode) -> None:
-        """Insert an episode, overwriting the oldest when full."""
-        self._buffer[self._head] = ep
+        self._jsonl_dir = Path(jsonl_dir) if jsonl_dir is not None else None
+        self._roll_bytes = roll_bytes
+        self._run_id = uuid4().hex
+        self._part_index = 0
+        self._current_file: Optional[Path] = None
+        self._fh = None
+        self._written_bytes = 0
+
+        if self._jsonl_dir is not None:
+            self._jsonl_dir.mkdir(parents=True, exist_ok=True)
+            self._open_new_file()
+
+    def _open_new_file(self) -> None:
+        if self._fh is not None:
+            self._fh.close()
+        path = self._jsonl_dir / f"{self._run_id}.part{self._part_index}.jsonl"
+        self._fh = open(path, "a", encoding="utf-8")
+        self._current_file = path
+        self._written_bytes = self._fh.tell()
+        self._part_index += 1
+
+    def append(self, episode: Episode) -> None:
+        self._buffer[self._head] = episode
         self._head = (self._head + 1) % self._capacity
         if self._size < self._capacity:
             self._size += 1
-        payload = {
-            "event": "片段写入",
-            "meta": {"kind": ep.kind, "t0": ep.t0, "t1": ep.t1},
-        }
-        logger = _get_logger()
-        logger.info(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+
+        offset = None
+        filename = None
+        if self._fh is not None:
+            payload = asdict(episode)
+            line = json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
+            data = line.encode("utf-8")
+            if self._written_bytes + len(data) > self._roll_bytes:
+                self._open_new_file()
+            offset = self._written_bytes
+            assert self._fh is not None
+            self._fh.write(line)
+            self._fh.flush()
+            self._written_bytes += len(data)
+            filename = str(self._current_file)
+
+        self._logger.info(
+            "",
+            extra={
+                "event": "episode_appended",
+                "meta": {"kind": episode.kind, "offset": offset, "file": filename},
+            },
+        )
 
     def query_last(self, k: int = 10) -> List[Episode]:
-        """返回最新的最多 k 条片段（按时间逆序）。"""
         if k <= 0 or self._size == 0:
             return []
         result: List[Episode] = []
@@ -63,6 +99,14 @@ class EpisodicStore:
         return result
 
     def replay_iter(self, k: int = 50) -> Iterator[Episode]:
-        """按时间逆序迭代最近的最多 k 条片段。"""
         for episode in self.query_last(k):
             yield episode
+
+    def close(self) -> None:
+        if self._fh is not None:
+            self._fh.close()
+            self._fh = None
+
+
+__all__ = ["Episode", "EpisodicStore"]
+
