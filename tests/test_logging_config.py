@@ -6,6 +6,11 @@ import unittest
 from snn_py import logging_config
 
 
+def _record_payload(record: logging.LogRecord) -> dict:
+    formatter = logging_config.JSONLineFormatter(getattr(record, "run", {}))
+    return json.loads(formatter.format(record))
+
+
 def _reset_logging_state() -> None:
     root = logging.getLogger()
     for handler in list(root.handlers):
@@ -31,10 +36,9 @@ class LoggingConfigTests(unittest.TestCase):
             self.assertEqual(logging.getLogger().level, logging.INFO)
             self.assertEqual(logging.getLogger("snn_py").level, logging.INFO)
         self.assertGreaterEqual(len(captured.records), 1)
-        payload = json.loads(captured.records[-1].getMessage())
-        self.assertEqual(payload["event"], "日志初始化")
-        self.assertEqual(payload["meta"]["level"], "INFO")
-        self.assertEqual(payload["meta"]["env_var"], "SNN_PY_LOGLEVEL")
+        payload = _record_payload(captured.records[-1])
+        self.assertEqual(payload["event"], "logging_setup")
+        self.assertEqual(payload["meta"], {"level": "INFO"})
         self.assertIsInstance(payload["ts"], float)
         self.assertEqual(logging.getLogger("snn_py").getEffectiveLevel(), logging.INFO)
 
@@ -44,7 +48,7 @@ class LoggingConfigTests(unittest.TestCase):
             logging_config.setup()
             self.assertEqual(logging.getLogger().level, logging.DEBUG)
             self.assertEqual(logging.getLogger("snn_py").level, logging.DEBUG)
-        payload = json.loads(captured.records[-1].getMessage())
+        payload = _record_payload(captured.records[-1])
         self.assertEqual(payload["meta"]["level"], "DEBUG")
         self.assertEqual(logging.getLogger().level, logging.DEBUG)
         self.assertEqual(logging.getLogger("snn_py").getEffectiveLevel(), logging.DEBUG)

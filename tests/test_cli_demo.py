@@ -6,6 +6,7 @@ import unittest
 
 from snn_py import logging_config
 from snn_py.cli import demo
+from tests.utils import record_payload
 
 
 POLICY_TEMPLATE = {
@@ -40,6 +41,5 @@ class DemoCLITests(unittest.TestCase):
                 ])
 
         self.assertEqual(exit_code, 0)
-        events = [json.loads(record.getMessage()) for record in captured.records]
+        events = [record_payload(record) for record in captured.records]
         self.assertTrue(any(entry.get("event") == "run_complete" for entry in events))
-

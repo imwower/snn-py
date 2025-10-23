@@ -1,9 +1,9 @@
-import json
 import logging
 import unittest
 
 from snn_py import logging_config
 from snn_py.core.lif import LIF, LIFConfig, isi_cv
+from tests.utils import record_payload
 
 
 def _reset_logging() -> None:
@@ -62,11 +62,11 @@ class LIFNetworkTests(unittest.TestCase):
         with self.assertLogs("snn_py.core.lif", level="INFO") as captured:
             net = LIF(cfg, seed=1)
             net.run(0.5)
-        entries = [json.loads(record.getMessage()) for record in captured.records]
+        entries = [record_payload(record) for record in captured.records]
         events = {entry["event"] for entry in entries}
         self.assertIn("LIF 构建完成", events)
         self.assertTrue(any(entry["event"] == "LIF 步进摘要" for entry in entries))
-        entries = [json.loads(record.getMessage()) for record in captured.records]
+        entries = [record_payload(record) for record in captured.records]
         events = {entry["event"] for entry in entries}
         self.assertIn("LIF 构建完成", events)
         self.assertTrue(any(entry["event"] == "LIF 步进摘要" for entry in entries))

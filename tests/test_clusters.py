@@ -1,9 +1,9 @@
-import json
 import logging
 import unittest
 
 from snn_py import logging_config
 from snn_py.core import ClusterConfig, ClusterWLC
+from tests.utils import record_payload
 
 
 def _reset_logging() -> None:
@@ -46,6 +46,6 @@ class ClusterWLCTests(unittest.TestCase):
             series = net.dominant_cluster_series(spikes, win_steps=60)
         self.assertGreaterEqual(len(series), 3)
         self.assertGreaterEqual(len(set(series)), 2)
-        entries = [json.loads(record.getMessage()) for record in captured.records]
+        entries = [record_payload(record) for record in captured.records]
         events = [entry["event"] for entry in entries]
         self.assertIn("主导簇变更", events)

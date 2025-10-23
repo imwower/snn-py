@@ -1,10 +1,10 @@
-import json
 import logging
 import random
 import unittest
 
 from snn_py import logging_config
 from snn_py.core import detect_avalanches, detect_up_down
+from tests.utils import record_payload
 
 
 def _reset_logging() -> None:
@@ -28,7 +28,7 @@ class EventDetectionTests(unittest.TestCase):
         self.assertGreaterEqual(len(segments), 3)
         _, _, middle_state = segments[1]
         self.assertTrue(middle_state)
-        entries = [json.loads(rec.getMessage()) for rec in captured.records]
+        entries = [record_payload(rec) for rec in captured.records]
         self.assertTrue(any(entry["event"] == "上状态开始" for entry in entries))
 
     def test_avalanche_bins(self) -> None:
@@ -45,5 +45,5 @@ class EventDetectionTests(unittest.TestCase):
             self.assertGreater(avalanche["size"], 0)
             self.assertGreater(avalanche["duration_bins"], 0)
         if avalanches:
-            entries = [json.loads(rec.getMessage()) for rec in captured.records]
+            entries = [record_payload(rec) for rec in captured.records]
             self.assertTrue(any(entry["event"] == "神经雪崩" for entry in entries))

@@ -11,10 +11,7 @@ from snn_py import logging_config
 
 
 def _get_logger() -> logging.Logger:
-    logger = logging_config.get_logger("snn_py.memory.episodic")
-    if logger.level > logging.INFO:
-        logger.setLevel(logging.INFO)
-    return logger
+    return logging_config.get_logger("snn_py.memory.episodic")
 
 
 @dataclass

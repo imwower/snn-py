@@ -1,9 +1,9 @@
-import json
 import logging
 import unittest
 
 from snn_py import logging_config
 from snn_py.memory import Episode, EpisodicStore
+from tests.utils import record_payload
 
 
 def _reset_logging() -> None:
@@ -44,5 +44,5 @@ class EpisodicStoreTests(unittest.TestCase):
         episode = self._episode(5)
         with self.assertLogs("snn_py.memory.episodic", level="INFO") as captured:
             store.append(episode)
-        entries = [json.loads(record.getMessage()) for record in captured.records]
+        entries = [record_payload(record) for record in captured.records]
         self.assertTrue(any(entry["event"] == "片段写入" for entry in entries))

@@ -13,10 +13,7 @@ from snn_py import logging_config
 
 
 def _get_logger() -> logging.Logger:
-    logger = logging_config.get_logger("snn_py.core.lif")
-    if logger.level > logging.INFO:
-        logger.setLevel(logging.INFO)
-    return logger
+    return logging_config.get_logger("snn_py.core.lif")
 
 
 @dataclass(frozen=True)

@@ -6,6 +6,7 @@ import unittest
 
 from snn_py import logging_config
 from snn_py.policy import AuditResult, Auditor
+from tests.utils import record_payload
 
 
 def _reset_logging() -> None:
@@ -45,7 +46,7 @@ class AuditorTests(unittest.TestCase):
         with self.assertLogs("snn_py.policy.auditor", level="INFO") as captured:
             result = auditor.check("SaveParam", {})
         self.assertEqual(result.status, "APPROVED")
-        events = [json.loads(record.getMessage()) for record in captured.records]
+        events = [record_payload(record) for record in captured.records]
         self.assertTrue(any(entry["event"] == "审计决策" for entry in events))
 
     def test_guarded_requires_human(self) -> None:
