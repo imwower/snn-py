@@ -1,0 +1,12 @@
+{
+  "tools": {
+    "allowlist": ["SaveParam", "WriteMemory", "ProposeAction"],
+    "guarded": ["ControlHardware"],
+    "rules": {
+      "ControlHardware": {
+        "modes": ["simulate"],
+        "require_human_confirm": true
+      }
+    }
+  }
+}
