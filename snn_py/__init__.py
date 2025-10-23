@@ -9,6 +9,7 @@ from .core import (
     detect_up_down,
     isi_cv,
 )
+from .config import AppConfig, apply_seed, from_env
 from .intent import GateConfig, IntentGate, NoveltyScorer
 from .memory import Episode, EpisodicStore
 from .policy import AuditResult, Auditor
@@ -29,6 +30,9 @@ __all__ = [
     "ClusterWLC",
     "Episode",
     "EpisodicStore",
+    "AppConfig",
+    "from_env",
+    "apply_seed",
     "AuditResult",
     "Auditor",
 ]
