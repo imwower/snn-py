@@ -31,3 +31,55 @@ python -m pip install .
 python -m snn_py.cli.doctor --policy policy.example.json --check-dir .
 python -m snn_py.cli.demo --help
 ```
+
+## 工具与日志事件速览
+
+### 回放（Replay）
+
+```bash
+snnpy-replay --jsonl-dir ./episodes --since 10
+```
+
+日志事件：
+
+- `replay_loaded`：统计读入文件与集数。
+- `replay_timeline`：逐个 `run_id` 输出时间线与片段。
+- `replay_summary`：汇总运行与提案计数。
+
+### 参数扫（Sweep）
+
+```bash
+snnpy-sweep --seeds 1,2 --theta 0.7:1.0:0.1 --decay 0.5,0.7 --T 5
+```
+
+生成 `results.json`，日志事件：
+
+- `sweep_case_done`：记录单个参数组合及触发次数。
+- `sweep_complete`：汇报总运行案例数。
+
+### 并发 Runner
+
+```bash
+python -m snn_py.pipeline.runner --policy policy.example.json --max-events 50 --timeout-s 1.0
+```
+
+或使用安装后的脚本执行同等命令。关键日志：
+
+- `pipeline_start`：管线启动。
+- `segment_produced`/`intent_fired`/`audit_decision`：阶段性内部步骤（INFO 级别）。
+- `pipeline_complete`：提供生产与消费计数摘要。
+
+### 快照（Checkpoint）
+
+在 LIF 或 ClusterWLC 模型中：
+
+```python
+lif = LIF(cfg, seed=7)
+lif.save_json("lif.json")
+restored = LIF.load_json("lif.json")
+```
+
+日志事件：
+
+- `checkpoint_saved`：保存快照成功。
+- `checkpoint_loaded`：从快照恢复成功。

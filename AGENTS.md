@@ -3,6 +3,8 @@
 ## Project Structure & Module Organization
 Adopt the `src` layout: core modules live in `src/snn_py/` and mirror the runtime domains (`neurons`, `layers`, `learning`, `datasets`, `io`). Keep exploratory notebooks in `notebooks/` with names like `2403-spike-timing.ipynb` so they sort chronologically. Store reusable figures or weight dumps in `assets/` and large artefacts outside of the repo. Tests should shadow the code tree inside `tests/`, using `tests/helpers/` for shared fixtures and fakes. Example scripts belong in `examples/` and must run as standalone entry points.
 
+当前项目使用 `snn_py/` 扁平布局；如需迁移到 `src/` 结构请另开议题追踪。
+
 ## Build, Test, and Development Commands
 - `python -m venv .venv && source .venv/bin/activate` creates the local environment.
 - `pip install -e .[dev]` installs the package plus linters, type checkers, and pytest.
