@@ -6,6 +6,7 @@ from pathlib import Path
 
 from snn_py import logging_config
 from snn_py.pipeline.runner import main, run_pipeline
+from tests.utils import record_payload
 
 
 POLICY = {
@@ -32,21 +33,36 @@ class PipelineRunnerTests(unittest.TestCase):
             policy_path = self._write_policy(tmpdir)
             jsonl_dir = os.path.join(tmpdir, "episodes")
             os.makedirs(jsonl_dir, exist_ok=True)
-            meta = run_pipeline(policy_path=policy_path, jsonl_dir=Path(jsonl_dir), max_events=50, timeout_s=1.0)
-            self.assertEqual(meta["produced"], 50)
-            self.assertEqual(meta["consumed"], 50)
+            with self.assertLogs("snn_py.pipeline.runner", level="INFO") as captured:
+                meta = run_pipeline(policy_path=policy_path, jsonl_dir=Path(jsonl_dir), max_events=50, timeout_s=1.0)
+
+        events = [record_payload(record) for record in captured.records]
+        self.assertTrue(any(entry.get("event") == "pipeline_start" for entry in events))
+        summary = next(entry for entry in events if entry.get("event") == "pipeline_complete")
+        self.assertEqual(summary["meta"]["produced"], 50)
+        self.assertEqual(summary["meta"]["consumed"], 50)
+        self.assertEqual(meta["produced"], 50)
+        self.assertEqual(meta["consumed"], 50)
 
     def test_cli_timeout_option(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             policy_path = self._write_policy(tmpdir)
-            exit_code = main([
-                "--policy",
-                policy_path,
-                "--max-events",
-                "5",
-                "--timeout-s",
-                "0.1",
-                "--loglevel",
-                "INFO",
-            ])
-            self.assertEqual(exit_code, 0)
+            with self.assertLogs("snn_py.pipeline.runner", level="INFO") as captured:
+                exit_code = main([
+                    "--policy",
+                    policy_path,
+                    "--max-events",
+                    "5",
+                    "--timeout-s",
+                    "0.1",
+                    "--loglevel",
+                    "INFO",
+                ])
+
+        self.assertEqual(exit_code, 0)
+        events = [record_payload(record) for record in captured.records]
+        self.assertTrue(any(entry.get("event") == "pipeline_complete" for entry in events))
+
+
+if __name__ == "__main__":
+    unittest.main()
