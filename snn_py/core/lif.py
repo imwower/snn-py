@@ -6,14 +6,21 @@ import json
 import logging
 import random
 import statistics
-from dataclasses import dataclass
-from typing import List, Optional, Sequence
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Sequence
 
 from snn_py import logging_config
 
 
 def _get_logger() -> logging.Logger:
     return logging_config.get_logger("snn_py.core.lif")
+
+
+def _as_rng_state(value: Any) -> Any:
+    if isinstance(value, list):
+        return tuple(_as_rng_state(item) for item in value)
+    return value
 
 
 @dataclass(frozen=True)
@@ -115,6 +122,91 @@ class LIF:
         """模拟网络 T 秒并返回脉冲矩阵。"""
         steps = int(T / self.cfg.dt)
         return [self.step() for _ in range(steps)]
+
+    def to_dict(self) -> Dict[str, Any]:
+        """序列化网络配置与状态。"""
+        return {
+            "config": asdict(self.cfg),
+            "state": {
+                "adj": [row[:] for row in self._adj],
+                "is_inhibitory": self._is_inhibitory[:],
+                "v": self._v[:],
+                "refrac": self._refrac[:],
+                "pending": [row[:] for row in self._pending],
+                "time_step": self._time_step,
+                "rng_state": self._rng.getstate(),
+            },
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Dict[str, Any]) -> "LIF":
+        """根据字典恢复网络。"""
+        if not isinstance(payload, dict):
+            raise TypeError("payload must be a dict")
+        cfg_data = payload.get("config")
+        state = payload.get("state")
+        if not isinstance(cfg_data, dict) or not isinstance(state, dict):
+            raise ValueError("payload must include config/state dictionaries")
+        cfg = LIFConfig(**cfg_data)
+        instance: "LIF" = object.__new__(cls)  # type: ignore[call-arg]
+        instance.cfg = cfg
+        instance._rng = random.Random()
+        rng_state = state.get("rng_state")
+        if rng_state is not None:
+            instance._rng.setstate(_as_rng_state(rng_state))  # type: ignore[arg-type]
+        instance._dt_over_tau = cfg.dt / cfg.tau_m if cfg.tau_m > 0 else 0.0
+
+        adj_raw = state.get("adj")
+        is_inh_raw = state.get("is_inhibitory")
+        v_raw = state.get("v")
+        refrac_raw = state.get("refrac")
+        pending_raw = state.get("pending")
+        time_step = state.get("time_step")
+
+        if not isinstance(adj_raw, list) or len(adj_raw) != cfg.n:
+            raise ValueError("adj must be a list with length equal to cfg.n")
+        if not isinstance(is_inh_raw, list) or len(is_inh_raw) != cfg.n:
+            raise ValueError("is_inhibitory must be a list with length equal to cfg.n")
+        if not isinstance(v_raw, list) or len(v_raw) != cfg.n:
+            raise ValueError("v must be a list with length equal to cfg.n")
+        if not isinstance(refrac_raw, list) or len(refrac_raw) != cfg.n:
+            raise ValueError("refrac must be a list with length equal to cfg.n")
+        if not isinstance(pending_raw, list) or len(pending_raw) != cfg.n:
+            raise ValueError("pending must be a list with length equal to cfg.n")
+        if not isinstance(time_step, int):
+            raise ValueError("time_step must be an int")
+
+        instance._adj = [[int(dst) for dst in row] for row in adj_raw]
+        instance._is_inhibitory = [bool(x) for x in is_inh_raw]
+        instance._v = [float(v) for v in v_raw]
+        instance._refrac = [int(r) for r in refrac_raw]
+        instance._pending = [[int(dst) for dst in row] for row in pending_raw]
+        instance._time_step = time_step
+        return instance
+
+    def save_json(self, path: Path | str) -> None:
+        """保存状态至 JSON 文件。"""
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(self.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+        logger = _get_logger()
+        logger.info(
+            "",
+            extra={"event": "checkpoint_saved", "meta": {"path": str(target)}},
+        )
+
+    @classmethod
+    def load_json(cls, path: Path | str) -> "LIF":
+        """从 JSON 文件中恢复网络。"""
+        source = Path(path)
+        payload = json.loads(source.read_text(encoding="utf-8"))
+        instance = cls.from_dict(payload)
+        logger = _get_logger()
+        logger.info(
+            "",
+            extra={"event": "checkpoint_loaded", "meta": {"path": str(source)}},
+        )
+        return instance
 
 
 def isi_cv(train: Sequence[int], dt: float) -> Optional[float]:
