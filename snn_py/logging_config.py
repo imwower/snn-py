@@ -25,6 +25,7 @@ class JSONLineFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:  # type: ignore[override]
         event = getattr(record, "event", None)
         meta = getattr(record, "meta", None)
+        code = getattr(record, "code", None)
 
         message = record.getMessage()
         msg_value = message
@@ -39,6 +40,9 @@ class JSONLineFormatter(logging.Formatter):
                 payload_meta = payload.get("meta")
                 if meta is None and isinstance(payload_meta, dict):
                     meta = payload_meta
+                payload_code = payload.get("code")
+                if payload_code is not None:
+                    code = payload_code
                 msg_payload = payload.get("msg")
                 if msg_payload is not None:
                     msg_value = msg_payload
@@ -59,6 +63,8 @@ class JSONLineFormatter(logging.Formatter):
             "meta": meta,
             "run": run_data,
         }
+        if code is not None:
+            output["code"] = code
         return json.dumps(output, ensure_ascii=False, separators=(",", ":"))
 
 

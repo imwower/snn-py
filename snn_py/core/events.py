@@ -13,9 +13,18 @@ from snn_py import logging_config
 
 _LOGGER = logging_config.get_logger("snn_py.core.events")
 
+_EVENT_CODES = {
+    "上状态开始": "UP_START",
+    "下状态开始": "DOWN_START",
+    "神经雪崩": "AVALANCHE",
+}
+
 
 def _emit(event: str, **meta: float) -> None:
     payload = {"event": event, "ts": time.time(), "meta": meta}
+    code = _EVENT_CODES.get(event)
+    if code is not None:
+        payload["code"] = code
     _LOGGER.info(json.dumps(payload, separators=(",", ":")))
 
 

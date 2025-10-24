@@ -276,6 +276,7 @@ class ClusterWLC:
                 series.append(dominant)
                 payload = {
                     "event": "主导簇变更",
+                    "code": "CLUSTER_DOMINANT_CHANGE",
                     "meta": {"t": win_start * dt, "cluster": dominant},
                 }
                 self._logger.info(json.dumps(payload, separators=(",", ":")))

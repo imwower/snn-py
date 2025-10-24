@@ -66,6 +66,7 @@ class LIF:
             json.dumps(
                 {
                     "event": "LIF 构建完成",
+                    "code": "LIF_BUILT",
                     "meta": {
                         "n": cfg.n,
                         "p_conn": cfg.p_conn,
@@ -111,6 +112,7 @@ class LIF:
                 json.dumps(
                     {
                         "event": "LIF 步进摘要",
+                        "code": "LIF_STEP_SUMMARY",
                         "meta": {"t": self._time_step * self.cfg.dt, "spike_count": sum(spikes)},
                     },
                     separators=(",", ":"),

@@ -12,6 +12,13 @@ from typing import Optional, Tuple
 from snn_py import logging_config
 
 
+_EVENT_CODES = {
+    "意图触发": "INTENT_FIRED",
+    "不应期": "REFRACTORY",
+    "速率限制": "RATE_LIMITED",
+}
+
+
 @dataclass(frozen=True)
 class GateConfig:
     """意向门控的配置参数。"""
@@ -85,4 +92,7 @@ class IntentGate:
             "ts": time.time(),
             "meta": {"state": float(self._state), "q": float(q_t), "since_last": float(since_last)},
         }
+        code = _EVENT_CODES.get(event)
+        if code is not None:
+            payload["code"] = code
         self._logger.info(json.dumps(payload, separators=(",", ":")))
