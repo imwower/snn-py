@@ -100,3 +100,23 @@ class Auditor:
         )
         return AuditResult(status=status, reason=reason)
 
+
+def simulate(tool: str, args: Mapping[str, Any], auditor: Auditor) -> Dict[str, Any]:
+    """根据策略进行模拟审计并返回解释。"""
+
+    result = auditor.check(tool, args)
+    payload = {
+        "tool": tool,
+        "args": dict(args),
+        "status": result.status,
+        "explain": result.reason,
+    }
+    logger = _get_logger()
+    logger.info(
+        json.dumps(
+            {"event": "policy_simulated", "meta": {"tool": tool, "status": result.status}},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+    )
+    return payload
