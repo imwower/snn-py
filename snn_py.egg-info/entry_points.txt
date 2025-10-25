@@ -1,0 +1,5 @@
+[console_scripts]
+snnpy-demo = snn_py.cli.demo:main
+snnpy-doctor = snn_py.cli.doctor:main
+snnpy-replay = snn_py.cli.replay:main
+snnpy-sweep = snn_py.cli.sweep:main
