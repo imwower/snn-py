@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Iterable, List
+import gzip
 import re
 
 _SENTENCE_SPLIT = re.compile(r"[\.!\?\n]+")
@@ -17,11 +18,20 @@ def _tokenize(sentence: str) -> List[str]:
 
 def _iter_texts(root: Path) -> Iterable[str]:
     if root.is_file():
-        yield root.read_text(encoding="utf-8")
+        if root.suffix == ".gz" or root.name.endswith(".gz"):
+            with gzip.open(root, "rt", encoding="utf-8") as handle:
+                yield handle.read()
+        else:
+            yield root.read_text(encoding="utf-8")
         return
     if root.is_dir():
-        for path in sorted(root.glob("*.txt")):
-            yield path.read_text(encoding="utf-8")
+        candidates = list(root.rglob("*.txt")) + list(root.rglob("*.txt.gz"))
+        for path in sorted(candidates):
+            if path.suffix == ".gz" or path.name.endswith(".gz"):
+                with gzip.open(path, "rt", encoding="utf-8") as handle:
+                    yield handle.read()
+            else:
+                yield path.read_text(encoding="utf-8")
         return
     raise FileNotFoundError(root)
 

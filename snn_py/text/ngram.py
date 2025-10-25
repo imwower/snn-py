@@ -36,13 +36,18 @@ class NGramModel:
     def context_size(self) -> int:
         return self._context_size
 
+    @property
+    def vocab(self) -> set[str]:
+        return set(self._vocab)
+
     def _normalize(self, token: str) -> str:
         return token.lower() if self.config.lowercase else token
 
-    def fit(self, corpus: Sequence[Sequence[str]]) -> None:
-        """Build n-gram statistics from tokenized sentences."""
+    def _reset(self) -> None:
         self._counts = defaultdict(Counter)
         self._vocab = set()
+
+    def _ingest(self, corpus: Sequence[Sequence[str]]) -> None:
         pad = [self.config.start_token] * self._context_size
         for sentence in corpus:
             tokens = [self._normalize(tok) for tok in sentence if tok]
@@ -55,6 +60,17 @@ class NGramModel:
                 self._counts[context][target] += 1
                 if target != self.config.end_token:
                     self._vocab.add(target)
+
+    def fit(self, corpus: Sequence[Sequence[str]]) -> None:
+        """Build n-gram statistics from scratch using `corpus`."""
+        self._reset()
+        self._ingest(corpus)
+
+    def update(self, corpus: Sequence[Sequence[str]]) -> None:
+        """Incrementally update statistics with additional sentences."""
+        if not isinstance(self._counts, defaultdict):
+            self._counts = defaultdict(Counter, self._counts)
+        self._ingest(corpus)
 
     def _sample(self, context: Tuple[str, ...], rng: Random) -> str:
         distribution = self._counts.get(context)
