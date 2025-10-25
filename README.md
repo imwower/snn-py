@@ -196,13 +196,14 @@ python -m snn_py.cli.scribe_loop \
   --out runs/narrations_cn.demo.jsonl \
   --state runs/scribe_cn.state.json \
   --model models/ngram_cn.json \
-  --poll-ms 200
+  --poll-ms 200 \
+  --context 叙述者
 
 # 4. 观察解码结果（日志与 JSONL 均为 UTF-8 输出）
 tail -f runs/narrations_cn.demo.jsonl
 ```
 
-`scribe_loop` 默认使用 `ensure_ascii=False` 打印 `narration_text`，因此中文内容无需额外解码就能直接在终端与 JSONL 中查看。若希望完全移除英文提示词，可自定义 `context` 或 fork CLI 实现。
+`scribe_loop` 默认使用 `ensure_ascii=False` 打印 `narration_text`，因此中文内容无需额外解码就能直接在终端与 JSONL 中查看。若希望完全移除英文提示词，可通过 `--context` 传入任意中文提示词（默认已使用 `叙述者`），或根据需要 fork CLI 实现。
 
 # 5. 一键串联训练、提案与解码
 ```bash

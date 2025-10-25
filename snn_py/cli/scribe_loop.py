@@ -66,6 +66,12 @@ def _parse_args(argv: Optional[List[str]]) -> argparse.Namespace:
         default=0,
         help="Stop after processing N proposal events (0 = run indefinitely).",
     )
+    parser.add_argument(
+        "--context",
+        nargs="+",
+        default=["叙述者"],
+        help="Narration context tokens; defaults to纯中文提示以避免英文前缀。",
+    )
     return parser.parse_args(argv)
 
 
@@ -76,6 +82,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     state_path = Path(args.state)
     tail.load_state(state_path)
 
+    context_tokens = args.context or []
     narrator = Narrator(Path(args.model), seed=7)
     output_path = Path(args.out)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -95,7 +102,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 meta = event.get("meta") or {}
                 q = meta.get("q", 0.5)
 
-                narration = narrator.narrate(q=q, context=["the", "agent"])
+                narration = narrator.narrate(q=q, context=context_tokens)
                 record = {
                     "event": "narration",
                     "ts": time.time(),
