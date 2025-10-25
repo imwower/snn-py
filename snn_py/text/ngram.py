@@ -8,6 +8,7 @@ from pathlib import Path
 from random import Random
 from typing import Dict, List, Optional, Sequence, Tuple
 import json
+import math
 
 
 @dataclass(slots=True)
@@ -97,6 +98,42 @@ class NGramModel:
             if pick <= upto:
                 return token
         return tokens[-1]
+
+    def _prob(self, context: Tuple[str, ...], token: str) -> float:
+        distribution = self._counts.get(context)
+        if not distribution:
+            vocab_size = len(self._vocab) or 1
+            return 1.0 / (vocab_size + 1)
+        total = sum(distribution.values()) + self.config.k * (len(distribution) + 1)
+        count = distribution.get(token, 0)
+        return max(1e-12, (count + self.config.k) / total)
+
+    def evaluate(self, corpus: Sequence[Sequence[str]]) -> Tuple[float, int, int]:
+        """Return (neg_log_sum, token_count, sentence_count) for a corpus."""
+        pad = [self.config.start_token] * self._context_size
+        neg_log_sum = 0.0
+        token_count = 0
+        sent_count = 0
+        for sentence in corpus:
+            tokens = [self._normalize(tok) for tok in sentence if tok]
+            if not tokens:
+                continue
+            seq = pad + tokens + [self.config.end_token]
+            for idx in range(self._context_size, len(seq)):
+                context = tuple(seq[idx - self._context_size : idx])
+                target = seq[idx]
+                prob = self._prob(context, target)
+                neg_log_sum += -math.log(prob)
+                token_count += 1
+            sent_count += 1
+        return neg_log_sum, token_count, sent_count
+
+    def perplexity(self, corpus: Sequence[Sequence[str]]) -> float:
+        """Compute empirical perplexity on `corpus`."""
+        neg_log_sum, token_count, _ = self.evaluate(corpus)
+        if token_count == 0:
+            return float("inf")
+        return math.exp(neg_log_sum / token_count)
 
     def generate(
         self,
