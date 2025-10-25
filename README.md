@@ -111,3 +111,55 @@ restored = LIF.load_json("lif.json")
 
 - `checkpoint_saved`：保存快照成功。
 - `checkpoint_loaded`：从快照恢复成功。
+
+## 文本叙述流水线（训练 → 生成 → 评测）
+
+这一套组件允许你持续吞入新的自然语料、训练 n-gram 模型、实时跟随 proposals，并离线评估 perplexity/OOV。仓库已经提供了少量公开示例语料（`corpus/mini_agents.txt`、`corpus/mini_world.txt`、`corpus/mini_chronicles.txt.gz`），方便开箱即用；也建议在 `models/`、`corpus/`、`runs/` 等目录下安排你自己的输入输出。
+
+### 1. 一次性训练或增量更新
+
+`learn_watch` 会扫描 `corpus/` 目录下的 `.txt/.txt.gz` 文件生成 fingerprint，并在文件发生变化时重新训练或更新模型。重复运行即可自动增量。
+
+```bash
+python -m snn_py.cli.learn_watch \
+  --corpus corpus/ \
+  --state runs/corpus.fp.json \
+  --out models/ngram.json
+```
+
+### 2. 持续运行：Proposals → Narrations
+
+让 `scribe_loop` tail 你的 Runner 输出（或参考 `tests/test_end2end_longrun.py` 用线程写入模拟 proposals），它会在发现新 proposal 时调用训练好的模型生成 narration。
+
+```bash
+python -m snn_py.cli.scribe_loop \
+  --in runs/proposals.jsonl \
+  --out runs/narrations.jsonl \
+  --state runs/scribe.state.json \
+  --model models/ngram.json \
+  --poll-ms 200
+```
+
+### 3. 验证训练成果（离线）
+
+用 held-out 语料评测 perplexity 与 OOV 覆盖率，期望随着语料增多指标逐步下降。
+
+```bash
+python -m snn_py.cli.text_eval \
+  --model models/ngram.json \
+  --corpus corpus_val/
+```
+
+`text_eval_complete` 日志会包含 `{"perplexity": ..., "oov_ratio": ...}`。
+
+### 4. 端到端一键回归
+
+跑一遍关键测试确保持续集成：scribe loop、corpus watcher、text eval 以及 proposal→narration 长跑。
+
+```bash
+python -m unittest -v \
+  tests.test_scribe_loop \
+  tests.test_corpus_watch \
+  tests.test_text_eval \
+  tests.test_end2end_longrun
+```
