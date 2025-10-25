@@ -48,6 +48,11 @@ def _j(event: str, **meta: object) -> None:
     log.info(json.dumps(rec, ensure_ascii=False))
 
 
+def _log_plain_text(tag: str, text: str) -> None:
+    """Log decoded narration text for human inspection."""
+    log.info("%s: %s", tag, text)
+
+
 def _parse_args(argv: Optional[List[str]]) -> argparse.Namespace:
     parser = argparse.ArgumentParser("Tail proposals and emit narrated text.")
     parser.add_argument("--in", dest="inp", required=True, help="Input proposals JSONL (append-only).")
@@ -102,6 +107,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
                 processed += 1
                 _j("narration", q=q, text=narration.text)
+                _log_plain_text("narration_text", narration.text)
                 if args.max_events and processed >= args.max_events:
                     tail.save_state(state_path)
                     _j("scribe_loop_complete", processed=processed)
