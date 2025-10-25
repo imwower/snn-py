@@ -172,3 +172,34 @@ python -m unittest -v \
   tests.test_text_eval \
   tests.test_end2end_longrun
 ```
+
+### 一键示例：中文语料→训练→解码
+
+若使用仓库自带的中文对话语料，可按以下顺序执行命令，完成从语料训练、生成提案到输出解码文本的完整流程：
+
+```bash
+# 1. 训练或增量更新中文 n-gram 模型
+python -m snn_py.cli.learn_watch \
+  --corpus corpus \
+  --state runs/corpus_cn.fp.json \
+  --out models/ngram_cn.json
+
+# 2. （可选）快速生成提案事件以驱动 scribe loop
+python -m snn_py.cli.mock_proposals \
+  --out runs/proposals_cn.demo.jsonl \
+  --count 20 \
+  --interval-ms 200
+
+# 3. 启动 scribe loop，实时生成并记录中文叙述
+python -m snn_py.cli.scribe_loop \
+  --in runs/proposals_cn.demo.jsonl \
+  --out runs/narrations_cn.demo.jsonl \
+  --state runs/scribe_cn.state.json \
+  --model models/ngram_cn.json \
+  --poll-ms 200
+
+# 4. 观察解码结果（日志与 JSONL 均为 UTF-8 输出）
+tail -f runs/narrations_cn.demo.jsonl
+```
+
+`scribe_loop` 默认使用 `ensure_ascii=False` 打印 `narration_text`，因此中文内容无需额外解码就能直接在终端与 JSONL 中查看。若希望完全移除英文提示词，可自定义 `context` 或 fork CLI 实现。
