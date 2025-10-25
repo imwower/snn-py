@@ -1,0 +1,3 @@
+{"event": "narration", "ts": 1761415962.109091, "meta": {"q": 0.375, "text": "the agent 咖 题 一 标 真 调 manifest 系 请 目", "explain": "q=0.38 drove 10 generated tokens"}}
+{"event": "narration", "ts": 1761415962.1094332, "meta": {"q": 0.228, "text": "the agent loop 传 观 收 作 留 北 在", "explain": "q=0.23 drove 8 generated tokens"}}
+{"event": "narration", "ts": 1761415962.1096551, "meta": {"q": 0.653, "text": "the agent 参 禁 息 进 克 早 解 志 63 播 麦 餐 站", "explain": "q=0.65 drove 13 generated tokens"}}

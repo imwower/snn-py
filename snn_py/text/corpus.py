@@ -8,7 +8,9 @@ import gzip
 import re
 
 _SENTENCE_SPLIT = re.compile(r"[\.!\?\n]+")
-_TOKENIZER = re.compile(r"[a-zA-Z0-9']+")
+# Match ASCII words/digits (for English logs) or single CJK characters so that
+# tokenization keeps Chinese sentences instead of dropping them entirely.
+_TOKENIZER = re.compile(r"[a-zA-Z0-9']+|[\u4E00-\u9FFF]")
 
 
 def _tokenize(sentence: str) -> List[str]:
