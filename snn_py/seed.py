@@ -3,36 +3,30 @@
 from __future__ import annotations
 
 import random
-from typing import Dict, Optional
+import hashlib
+from typing import Dict
 
 
 class SeedManager:
-    """Create reproducible Random streams derived from a base seed."""
+    """
+    从 base seed + name 派生稳定子种子，返回独立 random.Random 实例。
+    """
 
-    def __init__(self, base: Optional[int]) -> None:
-        self._base = base
-        self._streams: Dict[str, random.Random] = {}
-        self._seeds: Dict[str, int] = {}
+    def __init__(self, base: int | None):
+        self.base = base
+        self._cache: Dict[str, random.Random] = {}
 
-    def _derive_seed(self, name: str) -> int:
-        return hash((self._base, name)) & 0xFFFFFFFF
+    def _derive(self, name: str) -> int:
+        val = self.base if self.base is not None else 0x5DEECE66D
+        s = f"{val}:{name}".encode("utf-8")
+        h = hashlib.sha256(s).digest()
+        # 取前 8 字节作为 64-bit 整数
+        return int.from_bytes(h[:8], "big", signed=False)
 
     def rng(self, name: str) -> random.Random:
-        """Return (and cache) a Random instance scoped to `name`."""
-        if name not in self._streams:
-            seed = self._derive_seed(name)
-            self._streams[name] = random.Random(seed)
-            self._seeds[name] = seed
-        return self._streams[name]
-
-    def seed_for(self, name: str) -> int:
-        """Expose the numeric seed for a named stream."""
-        self.rng(name)
-        return self._seeds[name]
-
-    def describe(self) -> Dict[str, int]:
-        """Return a copy of stream→seed mapping for logging/manifests."""
-        return dict(self._seeds)
+        if name not in self._cache:
+            self._cache[name] = random.Random(self._derive(name))
+        return self._cache[name]
 
 
 __all__ = ["SeedManager"]

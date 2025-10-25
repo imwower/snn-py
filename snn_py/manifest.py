@@ -2,44 +2,40 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
-import hashlib
-import json
-import subprocess
-import sys
-import time
+from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Dict, Mapping, Optional
-from uuid import uuid4
-
+from typing import Mapping, Dict, Optional, List
+import json
+import time
+import uuid
+import hashlib
+import os
+import subprocess
 
 ENV_WHITELIST = ("SNN_PY_LOGLEVEL", "SNN_PY_SEED")
 
 
-def _read_git_sha() -> Optional[str]:
+def _git_sha_short() -> Optional[str]:
     try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            check=True,
+        out = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
             capture_output=True,
             text=True,
+            check=True,
         )
-    except (subprocess.CalledProcessError, FileNotFoundError):
+        return out.stdout.strip() or None
+    except Exception:
         return None
-    sha = result.stdout.strip()
-    return sha or None
 
 
-def _hash_policy(policy_path: Optional[Path]) -> Optional[str]:
-    if policy_path is None:
+def _sha256_of_file(p: Optional[Path]) -> Optional[str]:
+    if not p or not p.exists():
         return None
-    try:
-        data = policy_path.read_bytes()
-    except OSError:
-        return None
-    digest = hashlib.sha256()
-    digest.update(data)
-    return digest.hexdigest()
+    h = hashlib.sha256()
+    with p.open("rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 @dataclass
@@ -47,43 +43,43 @@ class Manifest:
     run_id: str
     ts_start: float
     git_sha: Optional[str]
-    policy_sha256: Optional[str]
     policy_path: Optional[str]
-    argv: list[str] = field(default_factory=list)
-    env_whitelist: Dict[str, str] = field(default_factory=dict)
-    artifacts: Dict[str, object] = field(default_factory=dict)
-    seeds: Dict[str, int] = field(default_factory=dict)
-
-    @classmethod
-    def build(cls, policy_path: Optional[Path], env: Mapping[str, str]) -> "Manifest":
-        run_id = uuid4().hex
-        ts_start = time.time()
-        git_sha = _read_git_sha()
-        policy_sha256 = _hash_policy(policy_path)
-        collected_env: Dict[str, str] = {}
-        for key in ENV_WHITELIST:
-            if key in env:
-                collected_env[key] = env[key]
-        argv = list(sys.argv[1:])
-        policy_path_str = str(policy_path) if policy_path else None
-        return cls(
-            run_id=run_id,
-            ts_start=ts_start,
-            git_sha=git_sha,
-            policy_sha256=policy_sha256,
-            policy_path=policy_path_str,
-            argv=argv,
-            env_whitelist=collected_env,
-        )
+    policy_sha256: Optional[str]
+    argv: List[str]
+    env_whitelist: Dict[str, str]
+    artifacts: Dict[str, str]
 
 
-def save_manifest(manifest: Manifest, out_dir: Path) -> Path:
+def build(policy_path: Optional[Path], env: Mapping[str, str] = os.environ) -> Manifest:
+    run_id = uuid.uuid4().hex
+    ts = time.time()
+    git = _git_sha_short()
+    pol_sha = _sha256_of_file(policy_path)
+    env_wl = {k: env[k] for k in ENV_WHITELIST if k in env}
+    return Manifest(
+        run_id=run_id,
+        ts_start=ts,
+        git_sha=git,
+        policy_path=str(policy_path) if policy_path else None,
+        policy_sha256=pol_sha,
+        argv=list(os.sys.argv),
+        env_whitelist=env_wl,
+        artifacts={},
+    )
+
+
+def save_manifest(m: Manifest, out_dir: Path) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / "manifest.json"
-    payload = asdict(manifest)
-    text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    out_path.write_text(text, encoding="utf-8")
-    return out_path
+    p = out_dir / "manifest.json"
+    with p.open("w", encoding="utf-8") as f:
+        json.dump(asdict(m), f, ensure_ascii=False, sort_keys=True)
+    return p
 
 
-__all__ = ["Manifest", "save_manifest", "ENV_WHITELIST"]
+__all__ = [
+    "Manifest",
+    "ENV_WHITELIST",
+    "build",
+    "save_manifest",
+    "_sha256_of_file",
+]
