@@ -7,10 +7,11 @@ import math
 import random
 import time
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Type
 
 from snn_py import logging_config
 from snn_py.event_schema import EVENT_CODES
+from snn_py.plugins.registry import load_symbol
 
 
 @dataclass(frozen=True)
@@ -90,3 +91,25 @@ class IntentGate:
         if code is not None:
             payload["code"] = code
         self._logger.info(json.dumps(payload, separators=(",", ":")))
+
+
+DEFAULT_GATE_SYMBOL = "snn_py.intent.gate:IntentGate"
+
+
+def resolve_gate(symbol: Optional[str] = None) -> Type[IntentGate]:
+    if symbol in (None, "", DEFAULT_GATE_SYMBOL):
+        return IntentGate
+    obj = load_symbol(symbol)
+    if not isinstance(obj, type):
+        raise TypeError(f"plugin {symbol} is not a class")
+    if not hasattr(obj, "step"):
+        raise TypeError(f"plugin {symbol} does not expose 'step'")
+    return obj  # type: ignore[return-value]
+
+
+def create_gate(cfg: GateConfig, seed: int = 7, symbol: Optional[str] = None, **kwargs) -> IntentGate:
+    gate_cls = resolve_gate(symbol)
+    return gate_cls(cfg, seed=seed, **kwargs)
+
+
+__all__ = ["GateConfig", "IntentGate", "create_gate", "resolve_gate", "DEFAULT_GATE_SYMBOL"]

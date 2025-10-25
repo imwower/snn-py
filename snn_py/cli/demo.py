@@ -18,6 +18,7 @@ from snn_py.manifest import Manifest, save_manifest
 from snn_py.memory.episodic import Episode, EpisodicStore
 from snn_py.policy.auditor import Auditor
 from snn_py.seed import SeedManager
+from snn_py.telemetry import Telemetry
 
 
 def _parse_args(args: Optional[Sequence[str]]) -> argparse.Namespace:
@@ -33,6 +34,12 @@ def _parse_args(args: Optional[Sequence[str]]) -> argparse.Namespace:
     )
     parser.add_argument("--profile", default=None, help="保存 cProfile 结果到文件")
     parser.add_argument("--trace-coverage", default=None, help="输出 trace 覆盖目录")
+    parser.add_argument(
+        "--telemetry-interval",
+        type=float,
+        default=0.0,
+        help="启用运行态资源观测（秒），0 表示关闭",
+    )
     return parser.parse_args(args=args)
 
 
@@ -123,128 +130,135 @@ def _run(parsed: argparse.Namespace, raw_args: Optional[Sequence[str]] = None) -
     os.environ["SNN_PY_LOGLEVEL"] = parsed.loglevel
     logging_config.setup()
     logger = logging_config.get_logger("snn_py.cli.demo")
+    telemetry = None
+    if parsed.telemetry_interval and parsed.telemetry_interval > 0:
+        telemetry = Telemetry(interval_s=parsed.telemetry_interval)
+        telemetry.start()
 
-    manifest = Manifest.build(Path(parsed.policy), os.environ)
-    if raw_args is not None:
-        manifest.argv = list(raw_args)
-    run_dir = Path("episodes") / manifest.run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
-    seed_base = _seed_base(manifest.run_id, os.environ)
-    seed_manager = SeedManager(seed_base)
-    segments_rng = seed_manager.rng("segments")
-    gate_rng = seed_manager.rng("gate")
-    logger.info("", extra={"event": "seed_streams_ready", "meta": {"streams": sorted(seed_manager.describe().keys())}})
+    try:
+        manifest = Manifest.build(Path(parsed.policy), os.environ)
+        if raw_args is not None:
+            manifest.argv = list(raw_args)
+        run_dir = Path("episodes") / manifest.run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        seed_base = _seed_base(manifest.run_id, os.environ)
+        seed_manager = SeedManager(seed_base)
+        segments_rng = seed_manager.rng("segments")
+        gate_rng = seed_manager.rng("gate")
+        logger.info("", extra={"event": "seed_streams_ready", "meta": {"streams": sorted(seed_manager.describe().keys())}})
 
-    jsonl_dir = Path(parsed.jsonl_dir) if parsed.jsonl_dir else run_dir
-    store = EpisodicStore(jsonl_dir=jsonl_dir)
-    auditor = Auditor(parsed.policy)
-    scorer = NoveltyScorer()
+        jsonl_dir = Path(parsed.jsonl_dir) if parsed.jsonl_dir else run_dir
+        store = EpisodicStore(jsonl_dir=jsonl_dir)
+        auditor = Auditor(parsed.policy)
+        scorer = NoveltyScorer()
 
-    dt = 0.05
-    rates = _synth_rate(parsed.T, dt, segments_rng)
-    global_mean = sum(rates) / len(rates)
-    thr_low = global_mean - 0.1
-    thr_high = global_mean + 0.1
-    segs = _segments(rates, thr_low, thr_high)
+        dt = 0.05
+        rates = _synth_rate(parsed.T, dt, segments_rng)
+        global_mean = sum(rates) / len(rates)
+        thr_low = global_mean - 0.1
+        thr_high = global_mean + 0.1
+        segs = _segments(rates, thr_low, thr_high)
 
-    gate = SimpleIntentGate(dt=dt, threshold=0.85, decay=0.65, refractory=0.1, rng=gate_rng)
-    episode_count = 0
-    spike_series: List[int] = []
-    event_track: List[str] = []
+        gate = SimpleIntentGate(dt=dt, threshold=0.85, decay=0.65, refractory=0.1, rng=gate_rng)
+        episode_count = 0
+        spike_series: List[int] = []
+        event_track: List[str] = []
 
-    for idx, (start, end, is_up) in enumerate(segs):
-        segment_rates = rates[start:end]
-        if not segment_rates:
-            continue
-        mean_rate = sum(segment_rates) / len(segment_rates)
-        q = scorer.score(mean_rate)
-        drive = q if is_up else 0.5 * q
-
-        for _rate in segment_rates:
-            fired, timestamp = gate.step(drive)
-            spike_series.append(1 if fired else 0)
-            if not fired:
+        for idx, (start, end, is_up) in enumerate(segs):
+            segment_rates = rates[start:end]
+            if not segment_rates:
                 continue
-            logger.info(
-                "",
-                extra={
-                    "event": "intent_fired",
-                    "meta": {"t": round(timestamp, 3), "q": drive, "segment": idx, "up": is_up},
+            mean_rate = sum(segment_rates) / len(segment_rates)
+            q = scorer.score(mean_rate)
+            drive = q if is_up else 0.5 * q
+
+            for _rate in segment_rates:
+                fired, timestamp = gate.step(drive)
+                spike_series.append(1 if fired else 0)
+                if not fired:
+                    continue
+                logger.info(
+                    "",
+                    extra={
+                        "event": "intent_fired",
+                        "meta": {"t": round(timestamp, 3), "q": drive, "segment": idx, "up": is_up},
+                    },
+                )
+                proposal = {"tool": "ProposeAction", "args": {"note": "spontaneous"}}
+                episode = Episode(
+                    t0=timestamp,
+                    t1=timestamp,
+                    kind="proposal",
+                    meta={"segment": idx, "up": is_up, "q": drive},
+                    payload=proposal,
+                )
+                store.append(episode)
+                episode_count += 1
+                event_track.append("intent_fired")
+                result = auditor.check(proposal["tool"], proposal["args"])
+                event_track.append("audit_decision")
+                if result.status.upper() == "DENIED":
+                    event_track.append("denied")
+
+        store.close()
+
+        if spike_series:
+            metric_win = min(len(spike_series), max(1, int(0.5 / dt)))
+        else:
+            metric_win = 1
+        pop_rate = core_metrics.population_rate([spike_series], dt=dt, win=metric_win)
+        count_windows = core_metrics.window_counts(spike_series, metric_win) if spike_series else []
+        fano = core_metrics.fano_factor(count_windows)
+        stability_stats = core_metrics.stability(rates)
+        reliability_stats = core_metrics.reliability(event_track)
+        metrics_summary = {
+            "window": metric_win,
+            "population_rate_len": len(pop_rate),
+            "stability": stability_stats,
+            "fano": fano,
+            "reliability": reliability_stats,
+        }
+        manifest.artifacts["metrics"] = metrics_summary
+
+        manifest.artifacts["run_dir"] = str(run_dir.resolve())
+        manifest.artifacts["episodes_dir"] = str(jsonl_dir.resolve())
+        store_run_id = getattr(store, "_run_id", None)
+        pattern = f"{store_run_id}.part*.jsonl" if store_run_id else "*.jsonl"
+        files = sorted(jsonl_dir.glob(pattern))
+        if files:
+            serialized = [str(path.resolve()) for path in files]
+            manifest.artifacts["episodes_jsonl"] = serialized[0] if len(serialized) == 1 else serialized
+
+        if parsed.profile:
+            logger.info("", extra={"event": "profile_saved", "meta": {"path": parsed.profile}})
+            manifest.artifacts["profile"] = str(Path(parsed.profile).resolve())
+        if parsed.trace_coverage:
+            logger.info("", extra={"event": "trace_coverage_done", "meta": {"dir": parsed.trace_coverage}})
+            manifest.artifacts["trace_coverage_dir"] = str(Path(parsed.trace_coverage).resolve())
+        logger.info(
+            "",
+            extra={
+                "event": "metrics_done",
+                "meta": {
+                    "len": len(pop_rate),
+                    "cv": stability_stats.get("cv"),
+                    "fano": fano,
                 },
-            )
-            proposal = {"tool": "ProposeAction", "args": {"note": "spontaneous"}}
-            episode = Episode(
-                t0=timestamp,
-                t1=timestamp,
-                kind="proposal",
-                meta={"segment": idx, "up": is_up, "q": drive},
-                payload=proposal,
-            )
-            store.append(episode)
-            episode_count += 1
-            event_track.append("intent_fired")
-            result = auditor.check(proposal["tool"], proposal["args"])
-            event_track.append("audit_decision")
-            if result.status.upper() == "DENIED":
-                event_track.append("denied")
-
-    store.close()
-
-    if spike_series:
-        metric_win = min(len(spike_series), max(1, int(0.5 / dt)))
-    else:
-        metric_win = 1
-    pop_rate = core_metrics.population_rate([spike_series], dt=dt, win=metric_win)
-    count_windows = core_metrics.window_counts(spike_series, metric_win) if spike_series else []
-    fano = core_metrics.fano_factor(count_windows)
-    stability_stats = core_metrics.stability(rates)
-    reliability_stats = core_metrics.reliability(event_track)
-    metrics_summary = {
-        "window": metric_win,
-        "population_rate_len": len(pop_rate),
-        "stability": stability_stats,
-        "fano": fano,
-        "reliability": reliability_stats,
-    }
-    manifest.artifacts["metrics"] = metrics_summary
-
-    manifest.artifacts["run_dir"] = str(run_dir.resolve())
-    manifest.artifacts["episodes_dir"] = str(jsonl_dir.resolve())
-    store_run_id = getattr(store, "_run_id", None)
-    pattern = f"{store_run_id}.part*.jsonl" if store_run_id else "*.jsonl"
-    files = sorted(jsonl_dir.glob(pattern))
-    if files:
-        serialized = [str(path.resolve()) for path in files]
-        manifest.artifacts["episodes_jsonl"] = serialized[0] if len(serialized) == 1 else serialized
-
-    if parsed.profile:
-        logger.info("", extra={"event": "profile_saved", "meta": {"path": parsed.profile}})
-        manifest.artifacts["profile"] = str(Path(parsed.profile).resolve())
-    if parsed.trace_coverage:
-        logger.info("", extra={"event": "trace_coverage_done", "meta": {"dir": parsed.trace_coverage}})
-        manifest.artifacts["trace_coverage_dir"] = str(Path(parsed.trace_coverage).resolve())
-    logger.info(
-        "",
-        extra={
-            "event": "metrics_done",
-            "meta": {
-                "len": len(pop_rate),
-                "cv": stability_stats.get("cv"),
-                "fano": fano,
             },
-        },
-    )
-    logger.info("", extra={"event": "run_complete", "meta": {"episodes": episode_count}})
+        )
+        logger.info("", extra={"event": "run_complete", "meta": {"episodes": episode_count}})
 
-    manifest.seeds = seed_manager.describe()
-    manifest_path = save_manifest(manifest, run_dir)
-    logger.info("", extra={"event": "manifest_saved", "meta": {"path": str(manifest_path.resolve())}})
-
-    if previous_level is None:
-        os.environ.pop("SNN_PY_LOGLEVEL", None)
-    else:
-        os.environ["SNN_PY_LOGLEVEL"] = previous_level
-    logging_config.setup()
+        manifest.seeds = seed_manager.describe()
+        manifest_path = save_manifest(manifest, run_dir)
+        logger.info("", extra={"event": "manifest_saved", "meta": {"path": str(manifest_path.resolve())}})
+    finally:
+        if telemetry is not None:
+            telemetry.stop()
+        if previous_level is None:
+            os.environ.pop("SNN_PY_LOGLEVEL", None)
+        else:
+            os.environ["SNN_PY_LOGLEVEL"] = previous_level
+        logging_config.setup()
     return 0
 
 def main(args: Optional[Sequence[str]] = None) -> int:

@@ -11,17 +11,21 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from random import Random
-from typing import Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 from uuid import uuid4
 
 from snn_py import logging_config
-from snn_py.intent.gate import GateConfig, IntentGate
-from snn_py.intent.scoring import NoveltyScorer
+from snn_py.intent.gate import DEFAULT_GATE_SYMBOL, GateConfig, create_gate
+from snn_py.intent.scoring import DEFAULT_SCORER_SYMBOL, create_scorer
 from snn_py.memory.episodic import Episode, EpisodicStore
 from snn_py.policy.auditor import Auditor
 from snn_py.seed import SeedManager
 
 logger = logging_config.get_logger("snn_py.pipeline.runner")
+
+
+class PipelineShutdown(Exception):
+    """Raised to unwind worker threads after a fatal error."""
 
 
 @dataclass(frozen=True)
@@ -41,6 +45,22 @@ def _parse_args(args: Optional[Sequence[str]]) -> argparse.Namespace:
     parser.add_argument("--jsonl-dir", default=None, help="情景 JSONL 输出目录")
     parser.add_argument("--max-events", type=int, default=100, help="最大片段数量")
     parser.add_argument("--timeout-s", type=float, default=2.0, help="队列超时时间（秒）")
+    parser.add_argument(
+        "--chaos-prob",
+        type=float,
+        default=0.0,
+        help="每个环节注入失败的概率 (0-1)。",
+    )
+    parser.add_argument(
+        "--scorer",
+        default=DEFAULT_SCORER_SYMBOL,
+        help="得分器插件路径（module:Class）。",
+    )
+    parser.add_argument(
+        "--gate",
+        default=DEFAULT_GATE_SYMBOL,
+        help="意向门插件路径（module:Class）。",
+    )
     parser.add_argument(
         "--loglevel",
         default="INFO",
@@ -103,16 +123,28 @@ def _segments(rates: Sequence[float], thr_low: float, thr_high: float) -> List[T
 class PipelineRunner:
     """基于 threading + queue 的最小并发流水线。"""
 
-    def __init__(self, policy_path: str, jsonl_dir: Optional[Path] = None, max_events: int = 100, timeout_s: float = 2.0) -> None:
+    def __init__(
+        self,
+        policy_path: str,
+        jsonl_dir: Optional[Path] = None,
+        max_events: int = 100,
+        timeout_s: float = 2.0,
+        chaos_prob: float = 0.0,
+        scorer_symbol: str = DEFAULT_SCORER_SYMBOL,
+        gate_symbol: str = DEFAULT_GATE_SYMBOL,
+    ) -> None:
         if max_events <= 0:
             raise ValueError("max_events must be positive")
         if timeout_s <= 0:
             raise ValueError("timeout_s must be positive")
+        if chaos_prob < 0.0 or chaos_prob > 1.0:
+            raise ValueError("chaos_prob must be between 0.0 and 1.0")
 
         self._policy_path = policy_path
         self._jsonl_dir = jsonl_dir
         self._max_events = max_events
         self._timeout_s = timeout_s
+        self._chaos_prob = chaos_prob
         self._dt = 0.05
         self._run_id = uuid4().hex
         seed_base = _seed_base(self._run_id, os.environ)
@@ -125,13 +157,25 @@ class PipelineRunner:
         self._proposal_queue: "queue.Queue[object]" = queue.Queue(maxsize=16)
         self._result_queue: "queue.Queue[object]" = queue.Queue(maxsize=4)
         self._sentinel = object()
+        self._queue_closed = {
+            "segment": threading.Event(),
+            "proposal": threading.Event(),
+            "result": threading.Event(),
+        }
+        self._queue_map = {
+            "segment": self._segment_queue,
+            "proposal": self._proposal_queue,
+            "result": self._result_queue,
+        }
+        self._stop_event = threading.Event()
+        self._error_flag = threading.Event()
 
         self._produced = 0
         self._consumed = 0
 
         self._store = EpisodicStore(jsonl_dir=self._jsonl_dir)
         self._auditor = Auditor(self._policy_path)
-        self._scorer = NoveltyScorer()
+        self._scorer = create_scorer(symbol=scorer_symbol)
         gate_cfg = GateConfig(
             dt=self._dt,
             lam=0.0,
@@ -141,24 +185,42 @@ class PipelineRunner:
             refractory=0.0,
             max_rate_hz=0.0,
         )
-        self._gate = IntentGate(gate_cfg, seed=gate_seed)
+        self._gate = create_gate(cfg=gate_cfg, seed=gate_seed, symbol=gate_symbol)
+        self._chaos_rng = self._seed_manager.rng("chaos") if self._chaos_prob > 0.0 else None
 
     def run(self) -> Dict[str, int]:
         logger.info("", extra={"event": "pipeline_start"})
 
         threads = [
-            threading.Thread(target=self._producer, name="pipeline-producer", daemon=True),
-            threading.Thread(target=self._intent_worker, name="pipeline-intent", daemon=True),
-            threading.Thread(target=self._audit_worker, name="pipeline-audit", daemon=True),
+            threading.Thread(
+                target=self._worker_entry,
+                args=("producer", self._producer),
+                name="pipeline-producer",
+                daemon=True,
+            ),
+            threading.Thread(
+                target=self._worker_entry,
+                args=("intent", self._intent_worker),
+                name="pipeline-intent",
+                daemon=True,
+            ),
+            threading.Thread(
+                target=self._worker_entry,
+                args=("audit", self._audit_worker),
+                name="pipeline-audit",
+                daemon=True,
+            ),
         ]
 
         for worker in threads:
             worker.start()
 
-        self._wait_for_completion()
-
-        for worker in threads:
-            worker.join(timeout=self._timeout_s + 1.0)
+        try:
+            self._wait_for_completion()
+        finally:
+            for worker in threads:
+                worker.join(timeout=self._timeout_s + 1.0)
+            self._store.close()
 
         meta = {"produced": self._produced, "consumed": self._consumed}
         logger.info("", extra={"event": "pipeline_complete", "meta": meta})
@@ -169,17 +231,70 @@ class PipelineRunner:
             try:
                 item = self._result_queue.get(timeout=self._timeout_s)
             except queue.Empty:
+                if self._stop_event.is_set():
+                    break
                 continue
             if item is self._sentinel:
                 self._result_queue.task_done()
                 break
             self._result_queue.task_done()
 
+    def _worker_entry(self, where: str, target: Callable[[], None]) -> None:
+        try:
+            target()
+        except PipelineShutdown:
+            pass
+        except Exception as exc:  # pragma: no cover - logged for tests instead
+            self._handle_worker_error(where, exc)
+
+    def _handle_worker_error(self, where: str, exc: Exception) -> None:
+        self._stop_event.set()
+        meta = {"where": where, "type": exc.__class__.__name__, "message": str(exc)}
+        logger.error("", extra={"event": "pipeline_error", "meta": meta})
+        if where == "producer":
+            self._signal_queue_end("segment")
+            self._signal_queue_end("proposal")
+        elif where == "intent":
+            self._signal_queue_end("proposal")
+        self._signal_queue_end("result")
+
+    def _signal_queue_end(self, name: str) -> None:
+        flag = self._queue_closed[name]
+        if flag.is_set():
+            return
+        flag.set()
+        self._force_put(self._queue_map[name], self._sentinel)
+
+    def _force_put(self, q: "queue.Queue[object]", item: object) -> None:
+        while True:
+            try:
+                q.put(item, timeout=self._timeout_s)
+                return
+            except queue.Full:
+                continue
+
+    def _maybe_inject_chaos(self, where: str, mode: str) -> None:
+        if self._stop_event.is_set():
+            return
+        if self._chaos_rng is None:
+            return
+        if self._chaos_rng.random() >= self._chaos_prob:
+            return
+        if mode == "exception":
+            raise RuntimeError(f"chaos({where}): injected failure")
+        if mode == "timeout":
+            time.sleep(self._timeout_s * 1.5)
+            raise TimeoutError(f"chaos({where}): injected timeout")
+        if mode == "queue_full":
+            raise queue.Full(f"chaos({where}): simulated queue saturation")
+        raise RuntimeError(f"Unsupported chaos mode: {mode}")
+
     def _producer(self) -> None:
         rates = _synth_rate(self._max_events, self._dt, self._segments_rng)
         if not rates:
-            self._put(self._segment_queue, self._sentinel)
+            self._signal_queue_end("segment")
             return
+        self._maybe_inject_chaos("producer", "exception")
 
         global_mean = sum(rates) / len(rates)
         thr_low = global_mean - 0.05
@@ -189,6 +304,8 @@ class PipelineRunner:
         produced = 0
         for start, end, is_up in segments:
             if produced >= self._max_events:
+                break
+            if self._stop_event.is_set():
                 break
             segment_rates = rates[start:end]
             if not segment_rates:
@@ -201,10 +318,15 @@ class PipelineRunner:
                 mean_rate=mean_rate,
                 is_up=is_up,
             )
-            self._put(self._segment_queue, segment)
+            try:
+                self._put(self._segment_queue, segment)
+            except PipelineShutdown:
+                break
             produced += 1
 
         while produced < self._max_events:
+            if self._stop_event.is_set():
+                break
             segment = Segment(
                 index=produced,
                 t0=produced * self._dt,
@@ -212,10 +334,14 @@ class PipelineRunner:
                 mean_rate=rates[-1],
                 is_up=rates[-1] >= thr_high,
             )
-            self._put(self._segment_queue, segment)
+            try:
+                self._put(self._segment_queue, segment)
+            except PipelineShutdown:
+                break
             produced += 1
 
-        self._put(self._segment_queue, self._sentinel)
+        if not self._stop_event.is_set() and not self._queue_closed["segment"].is_set():
+            self._signal_queue_end("segment")
 
     def _intent_worker(self) -> None:
         gate = self._gate
@@ -223,10 +349,15 @@ class PipelineRunner:
         events_sent = 0
 
         while True:
-            item = self._get(self._segment_queue)
+            self._maybe_inject_chaos("intent", "timeout")
+            try:
+                item = self._get(self._segment_queue)
+            except PipelineShutdown:
+                break
             if item is self._sentinel:
                 self._segment_queue.task_done()
-                self._put(self._proposal_queue, self._sentinel)
+                if not self._stop_event.is_set():
+                    self._signal_queue_end("proposal")
                 break
 
             assert isinstance(item, Segment)
@@ -241,7 +372,11 @@ class PipelineRunner:
                     "t0": item.t0,
                     "t1": item.t1,
                 }
-                self._put(self._proposal_queue, proposal)
+                try:
+                    self._put(self._proposal_queue, proposal)
+                except PipelineShutdown:
+                    self._segment_queue.task_done()
+                    break
                 events_sent += 1
                 self._produced = events_sent
             self._segment_queue.task_done()
@@ -249,12 +384,16 @@ class PipelineRunner:
     def _audit_worker(self) -> None:
         consumed = 0
         while True:
-            item = self._get(self._proposal_queue)
+            self._maybe_inject_chaos("audit", "queue_full")
+            try:
+                item = self._get(self._proposal_queue)
+            except PipelineShutdown:
+                break
             if item is self._sentinel:
                 self._proposal_queue.task_done()
                 self._store.close()
-                self._put(self._result_queue, {"consumed": consumed})
-                self._put(self._result_queue, self._sentinel)
+                self._put(self._result_queue, {"consumed": consumed}, force=True)
+                self._signal_queue_end("result")
                 break
 
             assert isinstance(item, dict)
@@ -273,12 +412,16 @@ class PipelineRunner:
             self._consumed = consumed
             self._proposal_queue.task_done()
 
-    def _put(self, q: "queue.Queue[object]", item: object) -> None:
+    def _put(self, q: "queue.Queue[object]", item: object, *, force: bool = False) -> None:
         while True:
+            if not force and self._stop_event.is_set():
+                raise PipelineShutdown
             try:
                 q.put(item, timeout=self._timeout_s)
                 return
             except queue.Full:
+                if not force and self._stop_event.is_set():
+                    raise PipelineShutdown
                 continue
 
     def _get(self, q: "queue.Queue[object]") -> object:
@@ -286,6 +429,8 @@ class PipelineRunner:
             try:
                 return q.get(timeout=self._timeout_s)
             except queue.Empty:
+                if self._stop_event.is_set():
+                    raise PipelineShutdown
                 continue
 
 
@@ -294,8 +439,19 @@ def run_pipeline(
     jsonl_dir: Optional[Path] = None,
     max_events: int = 100,
     timeout_s: float = 2.0,
+    chaos_prob: float = 0.0,
+    scorer_symbol: str = DEFAULT_SCORER_SYMBOL,
+    gate_symbol: str = DEFAULT_GATE_SYMBOL,
 ) -> Dict[str, int]:
-    runner = PipelineRunner(policy_path=policy_path, jsonl_dir=jsonl_dir, max_events=max_events, timeout_s=timeout_s)
+    runner = PipelineRunner(
+        policy_path=policy_path,
+        jsonl_dir=jsonl_dir,
+        max_events=max_events,
+        timeout_s=timeout_s,
+        chaos_prob=chaos_prob,
+        scorer_symbol=scorer_symbol,
+        gate_symbol=gate_symbol,
+    )
     return runner.run()
 
 
@@ -312,6 +468,9 @@ def main(args: Optional[Sequence[str]] = None) -> int:
         jsonl_dir=jsonl_dir,
         max_events=parsed.max_events,
         timeout_s=parsed.timeout_s,
+        chaos_prob=parsed.chaos_prob,
+        scorer_symbol=parsed.scorer,
+        gate_symbol=parsed.gate,
     )
 
     if previous_level is None:
