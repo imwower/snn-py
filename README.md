@@ -129,7 +129,16 @@ python -m snn_py.cli.learn_watch \
 
 ### 2. 持续运行：Proposals → Narrations
 
-让 `scribe_loop` tail 你的 Runner 输出（或参考 `tests/test_end2end_longrun.py` 用线程写入模拟 proposals），它会在发现新 proposal 时调用训练好的模型生成 narration。
+先确保 `runs/proposals.jsonl` 持续追加 `proposal` 事件。若暂时没有 Runner，可用内置工具快速生成：
+
+```bash
+python -m snn_py.cli.mock_proposals \
+  --out runs/proposals.jsonl \
+  --count 20 \
+  --interval-ms 200
+```
+
+然后让 `scribe_loop` tail 该文件（或参考 `tests/test_end2end_longrun.py` 用线程写入模拟 proposals），它会在发现新 proposal 时调用训练好的模型生成 narration。
 
 ```bash
 python -m snn_py.cli.scribe_loop \
