@@ -1,0 +1,44 @@
+"""Utility helpers to load small training corpora for the narrator."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Iterable, List
+import re
+
+_SENTENCE_SPLIT = re.compile(r"[\.!\?\n]+")
+_TOKENIZER = re.compile(r"[a-zA-Z0-9']+")
+
+
+def _tokenize(sentence: str) -> List[str]:
+    tokens = [tok.lower() for tok in _TOKENIZER.findall(sentence)]
+    return [tok for tok in tokens if tok]
+
+
+def _iter_texts(root: Path) -> Iterable[str]:
+    if root.is_file():
+        yield root.read_text(encoding="utf-8")
+        return
+    if root.is_dir():
+        for path in sorted(root.glob("*.txt")):
+            yield path.read_text(encoding="utf-8")
+        return
+    raise FileNotFoundError(root)
+
+
+def load_corpus(path: Path | str) -> List[List[str]]:
+    """Load tokens grouped by sentences from a file or directory of .txt files."""
+    root = Path(path)
+    sentences: List[List[str]] = []
+    for text in _iter_texts(root):
+        for chunk in _SENTENCE_SPLIT.split(text):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            tokens = _tokenize(chunk)
+            if tokens:
+                sentences.append(tokens)
+    return sentences
+
+
+__all__ = ["load_corpus"]
