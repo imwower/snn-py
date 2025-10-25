@@ -482,3 +482,7 @@ def main(args: Optional[Sequence[str]] = None) -> int:
 
 
 __all__ = ["PipelineRunner", "run_pipeline", "main"]
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())

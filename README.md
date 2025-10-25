@@ -19,10 +19,26 @@ SNN_PY_LOGLEVEL=INFO python -m unittest -v
 若要体验端到端流程（LIF → 群体率 → Up/Down → 意向门 → 记忆 → 审计），可运行演示 CLI：
 
 ```bash
-python -m snn_py.cli.demo --T 5 --policy policy.example.json --loglevel INFO
+python -m snn_py.cli.demo \
+  --policy examples/policy.demo.json \
+  --jsonl-dir ./episodes \
+  --loglevel INFO
 ```
 
-执行过程中会打印 JSON 日志，最终输出 `run_complete` 事件以及生成的提案数。
+执行过程中会打印 JSON 日志，最终输出 `run_complete` 事件以及生成的提案数（`episodes/` 下会保存 `*.jsonl.gz` 片段）。
+
+需要完整的并发训练/推理流水线时，使用 Pipeline Runner：
+
+```bash
+python -m snn_py.pipeline.runner \
+  --policy examples/policy.demo.json \
+  --jsonl-dir ./episodes \
+  --max-events 50 \
+  --timeout-s 1.0 \
+  --loglevel INFO
+```
+
+该命令会启动多线程生产/意向/审计环节，最后汇报 `pipeline_complete` 并保证提案写入同一 `episodes/` 目录。
 
 ## 安装与快速开始
 
