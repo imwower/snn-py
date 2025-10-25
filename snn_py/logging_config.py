@@ -8,6 +8,7 @@ import os
 from typing import Dict, Optional, Tuple
 
 from .run_context import build_run_context
+from .event_schema import EVENT_CODES
 
 _PACKAGE_PREFIX = "snn_py"
 _LEVELS = {"DEBUG": logging.DEBUG, "INFO": logging.INFO, "WARNING": logging.WARNING, "ERROR": logging.ERROR}
@@ -30,6 +31,9 @@ class JSONLineFormatter(logging.Formatter):
         message = record.getMessage()
         msg_value = message
 
+        if event is not None and not isinstance(event, str):
+            event = str(event)
+
         if event is None and message:
             try:
                 payload = json.loads(message)
@@ -46,6 +50,12 @@ class JSONLineFormatter(logging.Formatter):
                 msg_payload = payload.get("msg")
                 if msg_payload is not None:
                     msg_value = msg_payload
+
+        if event is not None and not isinstance(event, str):
+            event = str(event)
+
+        if code is None and isinstance(event, str):
+            code = EVENT_CODES.get(event)
 
         if meta is None:
             meta = {}
