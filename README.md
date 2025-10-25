@@ -8,6 +8,18 @@ Typical usage during development:
 SNN_PY_LOGLEVEL=DEBUG python -m unittest -v
 ```
 
+## 项目概览
+
+snn-py 是一个面向 SNN（Spiking Neural Network）工作流的实验/演示平台，提供：
+
+- **统一日志与运行清单**：`logging_config` 输出 JSON 行日志，`manifest` 记录 run_id、Git SHA、策略哈希、环境变量与随机种子，便于回溯。
+- **可复现的随机流**：`SeedManager` 通过 base seed + 名字稳定派生 RNG，保障多线程/多模块改动后仍可重放。
+- **通用指标库**：`core.metrics` 提供群体发放率、Fano 因子、稳定性与可靠性统计，可在 demo/runner/replay 等场景复用。
+- **多条 CLI 链路**：`cli.demo`、`pipeline.runner`、`cli.replay`、`cli.sweep` 覆盖从生成、并发推理到结果回放的完整闭环。
+- **可扩展策略/插件体系**：策略 JSON 定义可用工具，`plugins.registry` 允许通过 `module:Class` 动态加载 scorer/gate。
+
+以下章节介绍如何测试、运行以及调试这些组件。
+
 ## 测试与演示
 
 在提交前可以使用 INFO 级别日志跑完整测试：
