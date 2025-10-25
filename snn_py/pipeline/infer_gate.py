@@ -10,7 +10,9 @@ from snn_py.train.threshold_model import ThresholdModel
 
 class GateInfer:
     def __init__(self, model_path: Path):
-        self.model = ThresholdModel.load(model_path)
+        model = ThresholdModel.load(model_path)
+        self.model = model
+        self.m = model  # backward compatibility for code expecting `.m`
 
     def batch(self, qs: Iterable[float]) -> List[int]:
         return [self.model.predict(q) for q in qs]
