@@ -15,6 +15,7 @@ class SeedManager:
     def __init__(self, base: int | None):
         self.base = base
         self._cache: Dict[str, random.Random] = {}
+        self._seeds: Dict[str, int] = {}
 
     def _derive(self, name: str) -> int:
         val = self.base if self.base is not None else 0x5DEECE66D
@@ -25,8 +26,19 @@ class SeedManager:
 
     def rng(self, name: str) -> random.Random:
         if name not in self._cache:
-            self._cache[name] = random.Random(self._derive(name))
+            seed = self._derive(name)
+            self._cache[name] = random.Random(seed)
+            self._seeds[name] = seed
         return self._cache[name]
+
+    def seed_for(self, name: str) -> int:
+        """Return the numeric seed assigned to `name`."""
+        self.rng(name)
+        return self._seeds[name]
+
+    def describe(self) -> Dict[str, int]:
+        """Expose stream→seed mapping for manifests/logging."""
+        return dict(self._seeds)
 
 
 __all__ = ["SeedManager"]

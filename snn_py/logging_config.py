@@ -81,14 +81,28 @@ class JSONLineFormatter(logging.Formatter):
 class ContextAdapter(logging.LoggerAdapter):
     """在日志记录中注入运行上下文。"""
 
-    def __init__(self, logger: logging.Logger, run: Dict[str, object]) -> None:
-        super().__init__(logger, {})
+    def __init__(self, logger_name: str, run: Dict[str, object]) -> None:
+        super().__init__(logging.getLogger(logger_name), {})
+        self._logger_name = logger_name
         self._run = run
+
+    def _refresh_logger(self) -> logging.Logger:
+        logger = logging.getLogger(self._logger_name)
+        if logger is not self.logger:
+            self.logger = logger
+        return logger
 
     def process(self, msg, kwargs):
         extra = kwargs.setdefault("extra", {})
         extra.setdefault("run", self._run)
         return msg, kwargs
+
+    def log(self, level, msg, *args, **kwargs):  # type: ignore[override]
+        logger = self._refresh_logger()
+        if not logger.isEnabledFor(level):
+            return
+        msg, kwargs = self.process(msg, kwargs)
+        logger._log(level, msg, args, **kwargs)
 
 
 def _determine_level(env_value: Optional[str]) -> Tuple[int, str]:
@@ -146,8 +160,7 @@ def get_logger(name: str) -> logging.Logger:
     else:
         qualified = f"{_PACKAGE_PREFIX}.{name}"
 
-    logger = logging.getLogger(qualified)
-    return ContextAdapter(logger, run)
+    return ContextAdapter(qualified, run)
 
 
 __all__ = ["JSONLineFormatter", "ContextAdapter", "setup", "get_logger"]

@@ -48,6 +48,12 @@ class Manifest:
     argv: List[str]
     env_whitelist: Dict[str, str]
     artifacts: Dict[str, str]
+    seeds: Dict[str, int]
+
+    @classmethod
+    def build(cls, policy_path: Optional[Path], env: Mapping[str, str] = os.environ) -> "Manifest":
+        """Backward-compatible constructor for legacy callers."""
+        return build(policy_path, env)
 
 
 def build(policy_path: Optional[Path], env: Mapping[str, str] = os.environ) -> Manifest:
@@ -65,6 +71,7 @@ def build(policy_path: Optional[Path], env: Mapping[str, str] = os.environ) -> M
         argv=list(os.sys.argv),
         env_whitelist=env_wl,
         artifacts={},
+        seeds={},
     )
 
 
