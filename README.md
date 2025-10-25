@@ -203,3 +203,33 @@ tail -f runs/narrations_cn.demo.jsonl
 ```
 
 `scribe_loop` 默认使用 `ensure_ascii=False` 打印 `narration_text`，因此中文内容无需额外解码就能直接在终端与 JSONL 中查看。若希望完全移除英文提示词，可自定义 `context` 或 fork CLI 实现。
+
+# 5. 一键串联训练、提案与解码
+```bash
+python -m snn_py.cli.learn_watch \
+  --corpus corpus \
+  --state runs/corpus_cn.fp.json \
+  --out models/ngram_cn.json && \
+python -m snn_py.cli.mock_proposals \
+  --out runs/proposals_cn.showcase.jsonl \
+  --count 5 \
+  --interval-ms 0 \
+  --seed 13 && \
+python -m snn_py.cli.scribe_loop \
+  --in runs/proposals_cn.showcase.jsonl \
+  --out runs/narrations_cn.showcase.jsonl \
+  --state runs/scribe_cn.showcase.state.json \
+  --model models/ngram_cn.json \
+  --poll-ms 50 \
+  --max-events 5
+```
+
+示例解码（节选自 `runs/narrations_cn.showcase.jsonl`）：
+
+```text
+the agent 火 常 糖 轮 正 斑 水 化 阳
+the agent 零 奶 于 高 沙 形 两 生 邮 甜 森 活 算
+the agent 腿 树 自 声 在 肉 语 林 作 视 伴 八 冰
+the agent 比 一 用 果 林 能 通 力 处 储 甜 看 漠 鼻
+the agent 蜘 闪 声 北 雨 常 氧 铁 据
+```
