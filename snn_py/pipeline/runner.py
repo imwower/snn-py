@@ -10,13 +10,16 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from random import Random
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple
+from uuid import uuid4
 
 from snn_py import logging_config
 from snn_py.intent.gate import GateConfig, IntentGate
 from snn_py.intent.scoring import NoveltyScorer
 from snn_py.memory.episodic import Episode, EpisodicStore
 from snn_py.policy.auditor import Auditor
+from snn_py.seed import SeedManager
 
 logger = logging_config.get_logger("snn_py.pipeline.runner")
 
@@ -47,16 +50,31 @@ def _parse_args(args: Optional[Sequence[str]]) -> argparse.Namespace:
     return parser.parse_args(args=args)
 
 
-def _synth_rate(num_steps: int, dt: float) -> List[float]:
+def _seed_base(run_id: str, env: Mapping[str, str]) -> int:
+    seed_str = env.get("SNN_PY_SEED")
+    if seed_str is not None:
+        try:
+            return int(seed_str)
+        except ValueError:
+            pass
+    try:
+        return int(run_id[:8], 16) & 0xFFFFFFFF
+    except ValueError:
+        return hash(run_id) & 0xFFFFFFFF
+
+
+def _synth_rate(num_steps: int, dt: float, rng: Random) -> List[float]:
     """生成简单的上下交替速率轨迹。"""
     rates: List[float] = []
     for idx in range(num_steps):
         phase = math.sin(2.0 * math.pi * idx / max(1, num_steps))
         base = 1.0 + 0.25 * phase
         if idx % 2 == 0:
-            rates.append(base + 0.2)
+            value = base + 0.2
         else:
-            rates.append(base - 0.2)
+            value = base - 0.2
+        value += rng.uniform(-0.05, 0.05)
+        rates.append(value)
     return rates
 
 
@@ -96,6 +114,12 @@ class PipelineRunner:
         self._max_events = max_events
         self._timeout_s = timeout_s
         self._dt = 0.05
+        self._run_id = uuid4().hex
+        seed_base = _seed_base(self._run_id, os.environ)
+        self._seed_manager = SeedManager(seed_base)
+        self._segments_rng = self._seed_manager.rng("segments")
+        gate_seed = self._seed_manager.seed_for("gate")
+        logger.info("", extra={"event": "seed_streams_ready", "meta": {"streams": sorted(self._seed_manager.describe().keys())}})
 
         self._segment_queue: "queue.Queue[object]" = queue.Queue(maxsize=16)
         self._proposal_queue: "queue.Queue[object]" = queue.Queue(maxsize=16)
@@ -117,7 +141,7 @@ class PipelineRunner:
             refractory=0.0,
             max_rate_hz=0.0,
         )
-        self._gate = IntentGate(gate_cfg, seed=13)
+        self._gate = IntentGate(gate_cfg, seed=gate_seed)
 
     def run(self) -> Dict[str, int]:
         logger.info("", extra={"event": "pipeline_start"})
@@ -152,7 +176,7 @@ class PipelineRunner:
             self._result_queue.task_done()
 
     def _producer(self) -> None:
-        rates = _synth_rate(self._max_events, self._dt)
+        rates = _synth_rate(self._max_events, self._dt, self._segments_rng)
         if not rates:
             self._put(self._segment_queue, self._sentinel)
             return

@@ -1,51 +1,49 @@
 import random
 import unittest
 
-from snn_py.core.metrics import fano_factor, population_rate, run_stability
+from snn_py.core import metrics
 
 
 class MetricsTests(unittest.TestCase):
-    def test_population_rate_shape_and_non_negative(self) -> None:
-        rng = random.Random(123)
-        neuron_count = 20
-        total_steps = 500
-        dt = 0.001
-        win = 25
-        firing_rate_hz = 15.0
-        p_spike = firing_rate_hz * dt
-
-        spikes = [
-            [1 if rng.random() < p_spike else 0 for _ in range(neuron_count)]
-            for _ in range(total_steps)
-        ]
-
-        rates = population_rate(spikes, dt=dt, win=win)
-
-        expected_length = total_steps - win + 1
-        self.assertEqual(expected_length, len(rates))
-        self.assertTrue(all(value >= 0.0 for value in rates))
-
-    def test_fano_factor_distinguishes_variance_levels(self) -> None:
+    def test_population_rate_poisson_spikes(self) -> None:
+        rng = random.Random(42)
+        steps = 64
+        neurons = 3
+        dt = 0.01
+        spikes = []
+        for _ in range(neurons):
+            train = [1 if rng.random() < 0.2 else 0 for _ in range(steps)]
+            spikes.append(train)
         win = 5
-        low_variance_counts = [10, 11, 9, 10, 10, 11, 10, 9, 10, 10]
-        high_variance_counts = [2, 18, 4, 22, 1, 19, 3, 25, 2, 20]
+        rates = metrics.population_rate(spikes, dt=dt, win=win)
+        self.assertEqual(len(rates), steps - win + 1)
+        self.assertTrue(all(rate >= 0.0 for rate in rates))
 
-        low_factor = fano_factor(low_variance_counts, win=win)
-        high_factor = fano_factor(high_variance_counts, win=win)
+    def test_fano_factor_distinguishes_variance(self) -> None:
+        low_series = [10] * 40
+        rng = random.Random(7)
+        high_series = [rng.randint(0, 25) for _ in range(40)]
+        win = 4
+        low_counts = metrics.window_counts(low_series, win)
+        high_counts = metrics.window_counts(high_series, win)
+        low_fano = metrics.fano_factor(low_counts)
+        high_fano = metrics.fano_factor(high_counts)
+        self.assertIsNotNone(low_fano)
+        self.assertIsNotNone(high_fano)
+        assert low_fano is not None and high_fano is not None
+        self.assertGreater(high_fano, low_fano)
 
-        self.assertIsNotNone(low_factor)
-        self.assertIsNotNone(high_factor)
-        assert low_factor is not None
-        assert high_factor is not None
-        self.assertGreater(high_factor, low_factor * 2)
+    def test_stability_cv_matches_std_div_mean(self) -> None:
+        rate = [1.0, 1.5, 2.0, 2.5, 3.0]
+        stats = metrics.stability(rate)
+        self.assertAlmostEqual(stats["mean"], sum(rate) / len(rate))
+        self.assertAlmostEqual(stats["std"] ** 2, sum((x - stats["mean"]) ** 2 for x in rate) / len(rate))
+        expected_cv = stats["std"] / stats["mean"]
+        self.assertAlmostEqual(stats["cv"], expected_cv)
 
-    def test_run_stability_cv_matches_std_over_mean(self) -> None:
-        trace = [1.0, 3.0, 5.0, 7.0]
-
-        stats = run_stability(trace)
-
-        self.assertAlmostEqual(stats["cv"], stats["std"] / stats["mean"], places=9)
-
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_reliability_counts_events(self) -> None:
+        events = ["intent_fired", "intent_fired", "audit_decision", "denied", "denied"]
+        counts = metrics.reliability(events)
+        self.assertEqual(counts["intent_fired"], 2)
+        self.assertEqual(counts["denied"], 2)
+        self.assertEqual(counts["audit_decision"], 1)

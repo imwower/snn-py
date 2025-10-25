@@ -1,142 +1,77 @@
-"""Metrics utilities for analysing spike trains and rates."""
+"""Lightweight metrics helpers for rate/stability/reliability analysis."""
 
 from __future__ import annotations
 
-import json
-import logging
 import math
-from statistics import fmean, pstdev, pvariance
 from typing import Dict, List, Optional
 
-logger = logging.getLogger("snn_py.core.metrics")
+
+def window_counts(series: List[int], win: int) -> List[int]:
+    if win <= 0:
+        raise ValueError("win must be positive")
+    if win > len(series):
+        return []
+    counts: List[int] = []
+    window_sum = sum(series[:win])
+    counts.append(window_sum)
+    for idx in range(win, len(series)):
+        window_sum += series[idx] - series[idx - win]
+        counts.append(window_sum)
+    return counts
 
 
 def population_rate(spikes: List[List[int]], dt: float, win: int) -> List[float]:
-    """Compute population firing rate in Hz using a sliding window.
-
-    Args:
-        spikes: Binary spike indicators shaped [T][N].
-        dt: Step duration in seconds.
-        win: Window size in steps.
-
-    Returns:
-        Population firing rate for each valid window.
-
-    Raises:
-        ValueError: When input dimensions or parameters are invalid.
-    """
-
     if dt <= 0:
-        raise ValueError("dt must be positive.")
+        raise ValueError("dt must be positive")
     if win <= 0:
-        raise ValueError("win must be positive.")
+        raise ValueError("win must be positive")
     if not spikes:
-        logger.info(
-            "%s",
-            json.dumps({"event": "metrics_done", "meta": {"len": 0, "win": win}}),
-        )
         return []
-
-    neuron_counts = [len(step) for step in spikes]
-    if len(set(neuron_counts)) != 1:
-        raise ValueError("All spike rows must have the same length.")
-    neuron_count = neuron_counts[0]
-    if neuron_count <= 0:
-        raise ValueError("Spike trains must include at least one neuron.")
-
-    total_steps = len(spikes)
-    if win > total_steps:
-        logger.info(
-            "%s",
-            json.dumps({"event": "metrics_done", "meta": {"len": 0, "win": win}}),
-        )
+    length = len(spikes[0])
+    if length == 0:
         return []
-
-    counts = [sum(step) for step in spikes]
-    window_sum = sum(counts[:win])
-    scale = neuron_count * win * dt
-    rates = [window_sum / scale]
-
-    for idx in range(win, total_steps):
-        window_sum += counts[idx] - counts[idx - win]
-        rates.append(window_sum / scale)
-
-    logger.info(
-        "%s",
-        json.dumps({"event": "metrics_done", "meta": {"len": len(rates), "win": win}}),
-    )
-    return rates
+    total: List[int] = [0] * length
+    for train in spikes:
+        if len(train) != length:
+            raise ValueError("spike trains must have equal length")
+        for idx, val in enumerate(train):
+            total[idx] += int(val)
+    counts = window_counts(total, win) if len(total) >= win else []
+    factor = dt * win
+    return [count / factor for count in counts]
 
 
-def fano_factor(counts: List[int], win: int) -> Optional[float]:
-    """Estimate Fano factor from count data grouped in fixed windows.
-
-    Args:
-        counts: Sequence of event counts.
-        win: Number of samples aggregated per window.
-
-    Returns:
-        The Fano factor (variance / mean) or None when insufficient data.
-
-    Raises:
-        ValueError: When win is not positive.
-    """
-
-    if win <= 0:
-        raise ValueError("win must be positive.")
+def fano_factor(counts: List[int]) -> Optional[float]:
     if not counts:
-        logger.info(
-            "%s",
-            json.dumps({"event": "metrics_done", "meta": {"len": 0, "win": win}}),
-        )
         return None
-
-    windowed = [
-        sum(counts[idx : idx + win]) for idx in range(0, len(counts) - win + 1, win)
-    ]
-
-    if len(windowed) < 2:
-        logger.info(
-            "%s",
-            json.dumps({"event": "metrics_done", "meta": {"len": 0, "win": win}}),
-        )
+    n = len(counts)
+    mean = sum(counts) / n
+    if mean <= 1e-9:
         return None
-
-    mean_value = fmean(windowed)
-    if math.isclose(mean_value, 0.0, abs_tol=1e-12):
-        logger.info(
-            "%s",
-            json.dumps({"event": "metrics_done", "meta": {"len": 0, "win": win}}),
-        )
-        return None
-
-    variance_value = pvariance(windowed)
-    result = variance_value / mean_value
-    logger.info(
-        "%s",
-        json.dumps(
-            {"event": "metrics_done", "meta": {"len": len(windowed), "win": win}}
-        ),
-    )
-    return result
+    variance = sum((value - mean) ** 2 for value in counts) / n
+    return variance / mean
 
 
-def run_stability(rate: List[float]) -> Dict[str, float]:
-    """Calculate stability statistics for a rate trace."""
-
+def stability(rate: List[float]) -> Dict[str, Optional[float]]:
     if not rate:
-        logger.info(
-            "%s",
-            json.dumps({"event": "metrics_done", "meta": {"len": 0, "win": None}}),
-        )
-        return {"mean": 0.0, "std": 0.0, "cv": math.nan}
+        return {"mean": 0.0, "std": 0.0, "cv": None}
+    n = len(rate)
+    mean = sum(rate) / n
+    variance = sum((value - mean) ** 2 for value in rate) / n
+    std = math.sqrt(variance)
+    cv = std / mean if abs(mean) > 1e-9 else None
+    return {"mean": mean, "std": std, "cv": cv}
 
-    mean_value = fmean(rate)
-    std_value = pstdev(rate)
-    cv_value = std_value / mean_value if not math.isclose(mean_value, 0.0) else math.inf
 
-    logger.info(
-        "%s",
-        json.dumps({"event": "metrics_done", "meta": {"len": len(rate), "win": None}}),
-    )
-    return {"mean": mean_value, "std": std_value, "cv": cv_value}
+def reliability(events: List[str]) -> Dict[str, int]:
+    stats: Dict[str, int] = {}
+    for event in events:
+        stats[event] = stats.get(event, 0) + 1
+    return stats
+
+
+def run_stability(rate: List[float]) -> Dict[str, Optional[float]]:
+    return stability(rate)
+
+
+__all__ = ["population_rate", "window_counts", "fano_factor", "stability", "reliability", "run_stability"]
