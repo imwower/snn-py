@@ -12,8 +12,8 @@ try:
 except Exception:
     _logging_config = None  # type: ignore[assignment]
 
-from snn_py.train.dataset import load_dataset, train_val_split
-from snn_py.train.threshold_model import ThresholdModel, f1_score, grid_search_theta
+from snn_py.train.dataset import load_dataset
+from snn_py.train.threshold_model import ThresholdModel, f1_score
 
 _BASIC_LOG_FORMAT = "%(message)s"
 _LOGGER: logging.Logger | None = None
@@ -43,46 +43,53 @@ def _get_logger(name: str) -> logging.Logger:
 def _logger() -> logging.Logger:
     global _LOGGER
     if _LOGGER is None:
-        _LOGGER = _get_logger("snn_py.cli.train_gate")
+        _LOGGER = _get_logger("snn_py.cli.eval_gate")
     return _LOGGER
 
 
-def _j(event: str, **meta) -> None:
+def _j(event: str, **meta):
     rec = {"event": event, "ts": time.time(), "meta": meta}
     _logger().info(json.dumps(rec, ensure_ascii=False))
 
 
+def _confusion(y_true, y_pred):
+    tp = sum(1 for a, b in zip(y_true, y_pred) if a == 1 and b == 1)
+    tn = sum(1 for a, b in zip(y_true, y_pred) if a == 0 and b == 0)
+    fp = sum(1 for a, b in zip(y_true, y_pred) if a == 0 and b == 1)
+    fn = sum(1 for a, b in zip(y_true, y_pred) if a == 1 and b == 0)
+    return tp, tn, fp, fn
+
+
 def main(argv: List[str] | None = None) -> int:
-    parser = argparse.ArgumentParser("train gate threshold from jsonl")
+    parser = argparse.ArgumentParser("evaluate gate model")
     parser.add_argument("--jsonl-dir", required=True)
-    parser.add_argument("--out", required=True)
-    parser.add_argument("--grid", default="0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8")
-    parser.add_argument("--val-ratio", type=float, default=0.2)
+    parser.add_argument("--model", required=True)
     args = parser.parse_args(argv)
 
-    dataset_dir = Path(args.jsonl_dir)
-    xs = load_dataset(dataset_dir)
-    if not xs:
-        _j("train_failed", reason="empty_dataset")
+    samples = load_dataset(Path(args.jsonl_dir))
+    if not samples:
+        _j("eval_failed", reason="empty_dataset")
         return 1
 
-    train_set, val_set = train_val_split(xs, args.val_ratio)
-    if not val_set:
-        val_set = train_set
-
-    grid = [float(x.strip()) for x in args.grid.split(",") if x.strip()]
-    if not grid:
-        raise ValueError("grid must contain at least one value")
-
-    model, best_f1 = grid_search_theta(train_set, val_set, grid)
-    out_path = Path(args.out)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    model.save(out_path)
-
-    y_val = [sample.y for sample in val_set]
-    preds = [model.predict(sample.q) for sample in val_set]
-    eval_f1 = f1_score(y_val, preds) if val_set else 0.0
-    _j("train_complete", samples=len(xs), theta=model.theta, f1=eval_f1, best_f1=best_f1)
+    model = ThresholdModel.load(Path(args.model))
+    y_true = [sample.y for sample in samples]
+    y_pred = [model.predict(sample.q) for sample in samples]
+    tp, tn, fp, fn = _confusion(y_true, y_pred)
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    f1 = f1_score(y_true, y_pred)
+    _j(
+        "eval_complete",
+        tp=tp,
+        tn=tn,
+        fp=fp,
+        fn=fn,
+        precision=precision,
+        recall=recall,
+        f1=f1,
+        theta=model.theta,
+        samples=len(samples),
+    )
     return 0
 
 
