@@ -114,7 +114,7 @@ restored = LIF.load_json("lif.json")
 
 ## 文本叙述流水线（训练 → 生成 → 评测）
 
-这一套组件允许你持续吞入新的自然语料、训练 n-gram 模型、实时跟随 proposals，并离线评估 perplexity/OOV。仓库已经提供了少量公开示例语料（`corpus/mini_agents.txt`、`corpus/mini_world.txt`、`corpus/mini_chronicles.txt.gz`），方便开箱即用；也建议在 `models/`、`corpus/`、`runs/` 等目录下安排你自己的输入输出。
+这一套组件允许你持续吞入新的自然语料、训练 n-gram 模型、实时跟随 proposals，并离线评估 perplexity/OOV。仓库已经提供了中文常识/对话示例语料（`corpus/dialog_cn_daily.txt`、`corpus/dialog_cn_support.txt`、`corpus/dialog_cn_radio.txt.gz`），方便开箱即用；也建议在 `models/`、`corpus/`、`runs/` 等目录下安排你自己的输入输出。
 
 ### 1. 一次性训练或增量更新
 

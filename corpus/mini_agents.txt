@@ -1,4 +1,0 @@
-the agent explores the archive of plans.
-the agent writes careful notes about each proposal.
-the agent observes the world and listens for quiet signals.
-
