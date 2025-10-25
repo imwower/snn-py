@@ -20,7 +20,7 @@ class EpisodicStoreTests(unittest.TestCase):
     def test_jsonl_logging_and_roll(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             dir_path = Path(tmpdir)
-            store = EpisodicStore(capacity=10, jsonl_dir=dir_path, roll_bytes=1_000)
+            store = EpisodicStore(capacity=10, jsonl_dir=dir_path, roll_bytes=1_000, compress=False)
             for i in range(100):
                 store.append(Episode(t0=i, t1=i + 0.1, kind="demo", meta={"i": i}, payload={"v": i}))
             store.close()
@@ -35,4 +35,3 @@ class EpisodicStoreTests(unittest.TestCase):
             self.assertEqual(len(entries), 100)
             self.assertEqual(entries[0]["meta"]["i"], 0)
             self.assertEqual(entries[-1]["meta"]["i"], 99)
-

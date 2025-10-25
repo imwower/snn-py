@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import math
 from collections import defaultdict
 from pathlib import Path
 from random import Random
-from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, Iterator, List, Optional, Sequence, TextIO, Tuple
 
 from snn_py import logging_config
 from snn_py.intent.scoring import NoveltyScorer
@@ -19,7 +20,11 @@ logger = logging_config.get_logger("snn_py.cli.replay")
 
 def _parse_args(argv: Optional[Sequence[str]]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Replay episodic JSONL runs.")
-    parser.add_argument("--jsonl-dir", required=True, help="Directory containing *.jsonl archives.")
+    parser.add_argument(
+        "--jsonl-dir",
+        required=True,
+        help="Directory containing *.jsonl or *.jsonl.gz archives.",
+    )
     parser.add_argument(
         "--since",
         type=float,
@@ -40,16 +45,30 @@ def _parse_args(argv: Optional[Sequence[str]]) -> argparse.Namespace:
 
 
 def _iter_files(jsonl_dir: Path) -> Iterator[Path]:
-    for path in sorted(jsonl_dir.glob("*.jsonl")):
+    patterns = ("*.jsonl", "*.jsonl.gz")
+    candidates = []
+    for pattern in patterns:
+        candidates.extend(jsonl_dir.glob(pattern))
+    for path in sorted(candidates):
         if path.is_file():
             yield path
 
 
 def _extract_run_id(path: Path) -> str:
-    name = path.stem  # drops .jsonl
+    name = path.name
+    if name.endswith(".jsonl.gz"):
+        name = name[: -len(".jsonl.gz")]
+    elif name.endswith(".jsonl"):
+        name = name[: -len(".jsonl")]
     if ".part" in name:
         return name.split(".part", 1)[0]
     return name
+
+
+def _open_jsonl(path: Path) -> TextIO:
+    if path.suffix == ".gz" or path.name.endswith(".jsonl.gz"):
+        return gzip.open(path, "rt", encoding="utf-8")
+    return path.open("r", encoding="utf-8")
 
 
 def _load_episodes(files: Iterable[Path], since: Optional[float]) -> Tuple[Dict[str, List[Episode]], Dict[str, Path]]:
@@ -59,7 +78,7 @@ def _load_episodes(files: Iterable[Path], since: Optional[float]) -> Tuple[Dict[
         run_id = _extract_run_id(path)
         sources.setdefault(run_id, path)
         try:
-            with path.open("r", encoding="utf-8") as handle:
+            with _open_jsonl(path) as handle:
                 for line in handle:
                     line = line.strip()
                     if not line:
