@@ -234,3 +234,32 @@ the agent 腿 树 自 声 在 肉 语 林 作 视 伴 八 冰
 the agent 比 一 用 果 林 能 通 力 处 储 甜 看 漠 鼻
 the agent 蜘 闪 声 北 雨 常 氧 铁 据
 ```
+
+# 6. 持续学习 + 主动输出
+
+如果希望一条命令搞定“监控语料→必要时重训→定期输出中文叙述”，可以使用自带的 `auto_narrate`：
+
+```bash
+python -m snn_py.cli.auto_narrate \
+  --corpus corpus \
+  --state runs/corpus_cn.fp.json \
+  --model models/ngram_cn.json \
+  --out runs/narrations_cn.auto.jsonl \
+  --emit-ms 1500 \
+  --context 叙述者
+```
+
+该进程会持续运行：当 `corpus/` 下的 `.txt/.txt.gz` 发生变化时自动增量训练模型，并按 `--emit-ms` 节奏生成 `auto_narration` 事件写入 JSONL 文件（日志同步打印 `narration_text`）。无需额外的 proposal 驱动即可获得稳定中文输出，如需停止可 `Ctrl+C` 或指定 `--max-events`。
+
+也可以直接执行脚本一键启动（可用环境变量覆盖默认参数，括号内为默认值）：
+
+```bash
+EMIT_MS=1500 \
+POLL_MS=500 \
+Q_MIN=0.2 \
+Q_MAX=0.8 \
+AUTO_CONTEXT=叙述者 \
+./scripts/run_cn_auto.sh
+```
+
+脚本还接受可选 CLI 参数（例如 `--max-events 100`），并允许用 `PYTHON_BIN` 指定 Python 解释器；若不设置上述变量则使用括号内的默认值。
